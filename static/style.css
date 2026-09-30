@@ -1,0 +1,171 @@
+/* Importaciones a Puerto Castilla - estilos mobile-first */
+:root {
+  --navy: #0a2a5e;
+  --navy-dark: #06204a;
+  --red: #c1121f;
+  --gold: #f0b429;
+  --bg: #f3f4f6;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --green: #15803d;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding-bottom: calc(76px + env(safe-area-inset-bottom));
+}
+
+.topbar {
+  background: var(--navy);
+  color: #fff;
+  padding: calc(14px + env(safe-area-inset-top)) 16px 14px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar h1 { margin: 0; font-size: 1.25rem; }
+.topbar .subtitle { margin: 2px 0 0; font-size: .85rem; color: #cbd5e1; }
+
+main { padding: 12px 12px 24px; max-width: 640px; margin: 0 auto; }
+.tab { display: none; }
+.tab.active { display: block; }
+h2 { font-size: 1.15rem; margin: 4px 0 10px; }
+h3 { font-size: 1rem; margin: 18px 0 8px; }
+.hint { color: var(--muted); font-size: .9rem; }
+.error { color: var(--red); font-size: .9rem; }
+.hidden { display: none !important; }
+
+/* Tarjetas de producto: foto arriba, números abajo */
+.cards { display: grid; gap: 12px; }
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.card-photo { width: 100%; aspect-ratio: 4 / 3; background: #e8eaf0; object-fit: cover; display: block; }
+.card-photo.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 3rem; color: #9ca3af;
+}
+.card-body { padding: 12px 14px; }
+.card-title { font-weight: 700; font-size: 1.05rem; margin: 0 0 8px; }
+.nums { display: grid; gap: 4px; margin: 0 0 10px; }
+.num-row { display: flex; justify-content: space-between; font-size: .92rem; padding: 3px 0; border-bottom: 1px dotted var(--border); }
+.num-row:last-child { border-bottom: none; }
+.num-row .lbl { color: var(--muted); }
+.num-row .val { font-variant-numeric: tabular-nums; font-weight: 600; }
+.num-row.total .lbl { color: var(--text); font-weight: 700; }
+.num-row.total .val { color: var(--green); }
+.card-actions { display: flex; gap: 8px; }
+.btn {
+  appearance: none; border: 1px solid var(--border); background: #fff; color: var(--text);
+  border-radius: 10px; padding: 10px 14px; font-size: .95rem; cursor: pointer;
+}
+.btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 700; }
+.btn.danger { color: var(--red); border-color: #f0b4b8; }
+.btn:active { transform: scale(.98); }
+
+/* Formularios */
+.form { background: var(--card); border-radius: var(--radius); padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.form + .form { margin-top: 14px; }
+.field { margin-bottom: 14px; }
+.field label { display: block; font-weight: 600; font-size: .9rem; margin-bottom: 6px; }
+.field input[type="text"], .field input[type="number"] {
+  width: 100%; padding: 12px; font-size: 1rem; border: 1px solid var(--border);
+  border-radius: 10px; background: #fff;
+}
+.check { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: .9rem; }
+.photo-preview {
+  width: 100%; aspect-ratio: 4 / 3; border: 2px dashed var(--border); border-radius: 12px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  background: #f9fafb; cursor: pointer; position: relative;
+}
+.photo-preview img { width: 100%; height: 100%; object-fit: cover; }
+.photo-placeholder { color: var(--muted); text-align: center; font-size: 1rem; line-height: 1.6; }
+
+/* Barra de pestañas */
+.tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  display: flex; background: #fff; border-top: 1px solid var(--border);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.tabbtn {
+  flex: 1; border: none; background: none; padding: 8px 2px 6px; font-size: 1.25rem;
+  display: flex; flex-direction: column; align-items: center; gap: 2px; color: var(--muted);
+  cursor: pointer;
+}
+.tabbtn span { font-size: .68rem; }
+.tabbtn.active { color: var(--navy); font-weight: 700; }
+.tabbtn.add { font-size: 1.6rem; color: var(--red); }
+
+/* Gráficas */
+.cards-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 6px; }
+.profit-card {
+  background: var(--card); border-radius: var(--radius); padding: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; flex-direction: column; gap: 2px;
+}
+.pc-ico { font-size: 1.4rem; }
+.pc-label { font-size: .78rem; color: var(--muted); }
+.pc-value { font-size: 1.1rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.chart { display: flex; justify-content: center; margin: 8px 0; }
+.chart svg { width: min(72vw, 280px); height: auto; }
+.donut-num { font-size: 20px; font-weight: 700; fill: var(--text); }
+.donut-lbl { font-size: 10px; fill: var(--muted); }
+.legend { display: grid; gap: 6px; margin-bottom: 6px; }
+.leg-row { display: flex; align-items: center; gap: 8px; font-size: .9rem; background: var(--card); border-radius: 8px; padding: 8px 10px; }
+.leg-row .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; }
+.leg-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.leg-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+.leg-val em { font-style: normal; color: var(--muted); font-weight: 400; }
+
+/* Hoja */
+.sheet-actions { display: flex; gap: 8px; margin-bottom: 10px; }
+.sheet-wrap { overflow-x: auto; background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+table.sheet { border-collapse: collapse; width: 100%; font-size: .78rem; min-width: 560px; }
+table.sheet th, table.sheet td { border: 1px solid #9ca3af; padding: 6px 8px; text-align: left; }
+table.sheet th { background: #c7c9cc; font-weight: 700; }
+table.sheet td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.sheet tr.summary td { font-weight: 700; background: #f3f4f6; }
+table.sheet tr.grand td { background: #e0e7ff; }
+
+/* Modal */
+.modal { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.5); display: flex; align-items: flex-start; justify-content: center; padding: 16px; overflow-y: auto; }
+.modal-box { background: #fff; border-radius: 16px; padding: 18px; width: 100%; max-width: 520px; margin: 24px 0; }
+.modal-box .form { box-shadow: none; padding: 0; }
+.modal-actions { display: flex; gap: 8px; }
+
+/* Aviso flotante */
+.notice {
+  position: fixed; left: 12px; right: 12px; bottom: calc(84px + env(safe-area-inset-bottom));
+  z-index: 40; background: var(--navy-dark); color: #fff; border-radius: 12px;
+  padding: 12px 14px; font-size: .92rem; box-shadow: 0 4px 16px rgba(0,0,0,.25);
+}
+.notice.err { background: var(--red); }
+
+@media (min-width: 700px) {
+  .cards { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---- Impresión de la hoja ---- */
+@media print {
+  .topbar, .tabbar, .sheet-actions, .notice, #tab-productos, #tab-agregar,
+  #tab-gastos, #tab-graficas, #tab-hoja h2, .modal { display: none !important; }
+  body { padding: 0; background: #fff; }
+  main { max-width: none; padding: 0; }
+  #tab-hoja { display: block !important; }
+  #tab-hoja::before {
+    content: "Importaciones a Puerto Castilla — Hoja de inventario";
+    display: block; font-size: 18px; font-weight: 700; margin-bottom: 10px;
+  }
+  .sheet-wrap { box-shadow: none; border-radius: 0; overflow: visible; }
+  table.sheet { font-size: 11px; min-width: 0; }
+}
