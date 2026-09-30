@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>{{ app_name }}</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#0a2a5e">
+<link rel="stylesheet" href="/static/style.css?v=1">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>{{ app_name }}</h1>
+  <p class="subtitle">Registro de compras y ganancias</p>
+</header>
+
+<main id="main">
+  <!-- Pestaña: Productos -->
+  <section id="tab-productos" class="tab active" aria-label="Productos">
+    <div id="product-list" class="cards"></div>
+    <p id="no-products" class="hint hidden">Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.</p>
+  </section>
+
+  <!-- Pestaña: Agregar -->
+  <section id="tab-agregar" class="tab" aria-label="Agregar producto">
+    <h2>Agregar producto</h2>
+    <form id="add-form" class="form" enctype="multipart/form-data">
+      <div class="field photo-field">
+        <label for="add-photo">Foto del producto</label>
+        <div class="photo-preview" id="photo-preview">
+          <span class="photo-placeholder">📷<br>Toca para tomar la foto</span>
+          <img id="photo-preview-img" class="hidden" alt="Vista previa de la foto">
+        </div>
+        <input type="file" id="add-photo" accept="image/*" capture="environment" class="hidden">
+      </div>
+      <div class="field">
+        <label for="add-desc">Descripción *</label>
+        <input type="text" id="add-desc" maxlength="200" placeholder="Ej: Zapatos nautica negros 9.5" required>
+      </div>
+      <div class="field">
+        <label for="add-usd">Precio de compra ($)</label>
+        <input type="number" id="add-usd" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label for="add-cost">Costo en LPS</label>
+        <input type="number" id="add-cost" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label for="add-sale">Precio de venta en LPS</label>
+        <input type="number" id="add-sale" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <p id="add-error" class="error hidden"></p>
+      <button type="submit" class="btn primary">Guardar producto</button>
+    </form>
+  </section>
+
+  <!-- Pestaña: Gastos -->
+  <section id="tab-gastos" class="tab" aria-label="Gastos">
+    <h2>Gastos</h2>
+    <p class="hint">Tax, envío y otros costos que se restan de la ganancia.</p>
+    <div id="expense-list" class="cards"></div>
+    <form id="add-expense-form" class="form">
+      <h3>Agregar gasto</h3>
+      <div class="field">
+        <label for="exp-name">Nombre *</label>
+        <input type="text" id="exp-name" maxlength="80" placeholder="Ej: Flete" required>
+      </div>
+      <div class="field">
+        <label for="exp-usd">Monto en $</label>
+        <input type="number" id="exp-usd" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label for="exp-lps">Monto en LPS</label>
+        <input type="number" id="exp-lps" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <p id="exp-error" class="error hidden"></p>
+      <button type="submit" class="btn primary">Guardar gasto</button>
+    </form>
+  </section>
+
+  <!-- Pestaña: Gráficas -->
+  <section id="tab-graficas" class="tab" aria-label="Gráficas">
+    <h2>Ganancias</h2>
+    <div id="summary-cards" class="cards-row"></div>
+    <h3>Inversión vs Ganancia libre</h3>
+    <div id="chart-donut" class="chart"></div>
+    <div id="legend-donut" class="legend"></div>
+    <h3>Ganancia por producto (top 8 + Otros)</h3>
+    <div id="chart-pie" class="chart"></div>
+    <div id="legend-pie" class="legend"></div>
+  </section>
+
+  <!-- Pestaña: Hoja -->
+  <section id="tab-hoja" class="tab" aria-label="Hoja">
+    <h2>Hoja de cálculo</h2>
+    <div class="sheet-actions">
+      <button id="btn-print" class="btn primary">🖨️ Imprimir</button>
+      <button id="btn-csv" class="btn">⬇️ Descargar CSV</button>
+    </div>
+    <div id="sheet-wrap" class="sheet-wrap">
+      <table id="sheet-table" class="sheet">
+        <thead id="sheet-head"></thead>
+        <tbody id="sheet-body"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Navegación">
+  <button class="tabbtn active" data-tab="productos">📦<span>Productos</span></button>
+  <button class="tabbtn add" data-tab="agregar">＋<span>Agregar</span></button>
+  <button class="tabbtn" data-tab="gastos">🧾<span>Gastos</span></button>
+  <button class="tabbtn" data-tab="graficas">📊<span>Gráficas</span></button>
+  <button class="tabbtn" data-tab="hoja">📄<span>Hoja</span></button>
+</nav>
+
+<!-- Modal de edición -->
+<div id="edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Editar producto">
+  <div class="modal-box">
+    <h2>Editar producto</h2>
+    <form id="edit-form" class="form">
+      <input type="hidden" id="edit-id">
+      <div class="field photo-field">
+        <label for="edit-photo">Foto</label>
+        <div class="photo-preview" id="edit-photo-preview">
+          <span class="photo-placeholder">📷<br>Toca para cambiar la foto</span>
+          <img id="edit-photo-preview-img" class="hidden" alt="Vista previa de la foto">
+        </div>
+        <input type="file" id="edit-photo" accept="image/*" capture="environment" class="hidden">
+        <label class="check"><input type="checkbox" id="edit-remove-photo"> Quitar la foto actual</label>
+      </div>
+      <div class="field">
+        <label for="edit-desc">Descripción *</label>
+        <input type="text" id="edit-desc" maxlength="200" required>
+      </div>
+      <div class="field">
+        <label for="edit-usd">Precio de compra ($)</label>
+        <input type="number" id="edit-usd" min="0" step="0.01" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="edit-cost">Costo en LPS</label>
+        <input type="number" id="edit-cost" min="0" step="0.01" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="edit-sale">Precio de venta en LPS</label>
+        <input type="number" id="edit-sale" min="0" step="0.01" inputmode="decimal">
+      </div>
+      <p id="edit-error" class="error hidden"></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">Guardar</button>
+        <button type="button" id="edit-cancel" class="btn">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="notice" class="notice hidden"></div>
+
+<script src="/static/app.js?v=1"></script>
+<script>
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/static/sw.js').catch(function () {});
+}
+</script>
+</body>
+</html>
