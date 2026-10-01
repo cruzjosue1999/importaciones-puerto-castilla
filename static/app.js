@@ -119,21 +119,28 @@
     });
   }
 
+  /* Una sola inversión seleccionada manda en toda la app: los chips de
+     Productos y de Gastos comparten la selección; productos, gastos,
+     formularios, hoja y gráficas la siguen. */
   function renderChips() {
-    var box = $('caja-chips');
     var h = '<button class="chip' + (productFilter === 'all' ? ' active' : '') + '" data-f="all">Todas</button>';
     h += cajasCache.map(function (c) {
       return '<button class="chip' + (String(productFilter) === String(c.id) ? ' active' : '') +
         '" data-f="' + c.id + '">📁 ' + escapeHtml(c.name) + '</button>';
     }).join('');
     h += '<button class="chip' + (productFilter === 'none' ? ' active' : '') + '" data-f="none">Sin inversión</button>';
-    box.innerHTML = h;
-    box.querySelectorAll('.chip').forEach(function (b) {
-      b.addEventListener('click', function () {
-        productFilter = b.getAttribute('data-f');
-        renderChips();
-        followInvestment(productFilter);
-        loadProducts();
+    ['caja-chips', 'expense-chips'].forEach(function (boxId) {
+      var box = $(boxId);
+      if (!box) return;
+      box.innerHTML = h;
+      box.querySelectorAll('.chip').forEach(function (b) {
+        b.addEventListener('click', function () {
+          productFilter = b.getAttribute('data-f');
+          renderChips();
+          followInvestment(productFilter);
+          loadProducts();
+          loadExpenses();
+        });
       });
     });
     var ac = $('add-caja');
@@ -194,7 +201,9 @@
       notice('Inversión eliminada.');
       if (String(productFilter) === String(id)) productFilter = 'all';
       await loadCajas();
+      followInvestment(productFilter);
       loadProducts();
+      loadExpenses();
     } catch (e) { notice(e.message, true); }
   }
 
@@ -394,6 +403,8 @@
       resetCajaForm();
       await loadCajas();
       followInvestment(productFilter);
+      loadProducts();
+      loadExpenses();
     } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
   });
   $('caja-cancel').addEventListener('click', resetCajaForm);
@@ -426,6 +437,7 @@
       await loadCajas();
       followInvestment(productFilter);
       loadProducts();
+      loadExpenses();
     } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
   });
 
@@ -433,6 +445,17 @@
     var box = $('expense-list');
     try {
       var list = await api('/api/expenses');
+      if (productFilter !== 'all') {
+        list = list.filter(function (e) {
+          return productFilter === 'none' ? !e.caja_id : String(e.caja_id) === String(productFilter);
+        });
+      }
+      if (!list.length) {
+        box.innerHTML = '<p class="hint">' + (productFilter === 'all'
+          ? 'Aún no hay gastos. Agrega el primero abajo.'
+          : 'Esta inversión aún no tiene gastos. Agrega el primero abajo.') + '</p>';
+        return;
+      }
       box.innerHTML = list.map(function (e) {
         var meta = e.caja_name ? '<p class="card-meta">📁 ' + escapeHtml(e.caja_name) + '</p>' : '';
         return '<article class="card"><div class="card-body">' +
