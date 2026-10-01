@@ -33,7 +33,7 @@
     noticeTimer = setTimeout(function () { n.classList.add('hidden'); }, 2600);
   }
 
-  /* ---------- navegación por pestañas ---------- */
+  /* ---------- confirmación propia (el confirm() del navegador no funciona en la app de iOS) ---------- */ function askConfirm(msg, yesLabel) { return new Promise(function (resolve) { var m = $('confirm-modal'); $('confirm-msg').textContent = msg; $('confirm-yes').textContent = yesLabel || 'Sí, eliminar'; m.classList.remove('hidden'); function done(val) { m.classList.add('hidden'); $('confirm-yes').removeEventListener('click', onYes); $('confirm-no').removeEventListener('click', onNo); m.removeEventListener('click', onBg); resolve(val); } function onYes() { done(true); } function onNo() { done(false); } function onBg(e) { if (e.target === m) done(false); } $('confirm-yes').addEventListener('click', onYes); $('confirm-no').addEventListener('click', onNo); m.addEventListener('click', onBg); }); } /* ---------- navegación por pestañas ---------- */
   var tabLoaders = { graficas: loadSummary, hoja: loadSheet, productos: loadProducts, gastos: loadExpenses };
   document.querySelectorAll('.tabbtn').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -87,7 +87,7 @@
   }
 
   async function delProduct(id) {
-    if (!confirm('¿Eliminar este producto? Esta acción no se puede deshacer.')) return;
+    if (!(await askConfirm('¿Eliminar este producto? Esta acción no se puede deshacer.'))) return;
     try {
       await api('/api/products/' + id, { method: 'DELETE' });
       notice('Producto eliminado.');
@@ -198,7 +198,7 @@
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
 
-  /* ---------- Gastos ---------- */
+  /* ---------- Gastos ---------- */ async function editExpense(id) { var list = await api('/api/expenses'); var e = list.find(function (x) { return x.id === id; }); if (!e) return; $('expense-id').value = e.id; $('expense-name').value = e.name; $('expense-usd').value = e.amount_usd; $('expense-lps').value = e.amount_lps; $('expense-error').classList.add('hidden'); $('expense-modal').classList.remove('hidden'); } $('expense-cancel').addEventListener('click', function () { $('expense-modal').classList.add('hidden'); }); $('expense-modal').addEventListener('click', function (e) { if (e.target === $('expense-modal')) $('expense-modal').classList.add('hidden'); }); $('expense-form').addEventListener('submit', async function (e) { e.preventDefault(); var id = $('expense-id').value; var err = $('expense-error'); err.classList.add('hidden'); var name = $('expense-name').value.trim(); if (!name) { err.textContent = 'El nombre del gasto es obligatorio.'; err.classList.remove('hidden'); return; } try { await api('/api/expenses/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, amount_usd: $('expense-usd').value, amount_lps: $('expense-lps').value }) }); $('expense-modal').classList.add('hidden'); notice('✅ Gasto actualizado.'); loadExpenses(); } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); } }); async function delExpense(id) { if (!(await askConfirm('¿Eliminar este gasto?'))) return; try { await api('/api/expenses/' + id, { method: 'DELETE' }); notice('Gasto eliminado.'); loadExpenses(); } catch (e) { notice(e.message, true); } }
   async function loadExpenses() {
     var box = $('expense-list');
     try {
@@ -224,7 +224,7 @@
     } catch (e) { notice('No se pudieron cargar los gastos: ' + e.message, true); }
   }
 
-  async function editExpense(id) {
+  async function editExpense_OLD(id) {
     var list = await api('/api/expenses');
     var e = list.find(function (x) { return x.id === id; });
     if (!e) return;
@@ -246,7 +246,7 @@
     } catch (err) { notice(err.message, true); }
   }
 
-  async function delExpense(id) {
+  async function delExpense_OLD(id) {
     if (!confirm('¿Eliminar este gasto?')) return;
     try {
       await api('/api/expenses/' + id, { method: 'DELETE' });
