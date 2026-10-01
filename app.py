@@ -26,6 +26,9 @@ Rutas principales:
     GET /api/expenses            -> categorías de gasto
     POST /api/expenses           -> crear gasto
     PUT/DELETE /api/expenses/<id>
+    GET /api/cajas               -> grupos por enviada (cajas)
+    POST /api/cajas              -> crear caja
+    PUT/DELETE /api/cajas/<id>
     GET /api/summary             -> totales + datos para gráficas
     GET /api/sheet               -> hoja tipo planilla (JSON)
     GET /api/sheet.csv           -> hoja en CSV (descargable)
@@ -253,8 +256,26 @@ def init_db():
             mime TEXT DEFAULT '',
             created_at INTEGER NOT NULL DEFAULT 0
         );
+        CREATE TABLE IF NOT EXISTS cajas (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0
+        );
         """
     )
+    # Migración: columnas nuevas en products y expenses (idempotente)
+    pcols = [r["name"] for r in db.execute("PRAGMA table_info(products)").fetchall()]
+    if "caja_id" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN caja_id INTEGER")
+    if "size_shoes" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN size_shoes TEXT DEFAULT ''")
+    if "size_shirts" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN size_shirts TEXT DEFAULT ''")
+    if "quantity" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN quantity REAL NOT NULL DEFAULT 1")
+    ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
+    if "caja_id" not in ecols:
+        db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
     n = db.execute("SELECT COUNT(*) AS n FROM expenses").fetchone()["n"]
     if n == 0:
@@ -265,6 +286,13 @@ def init_db():
         db.execute(
             "INSERT INTO expenses(name, amount_usd, amount_lps) VALUES(?,?,?)",
             ("Envío", 0, 0),
+        )
+    # Semilla: la planilla que nos pasó es la "Segunda caja"; vendrán más
+    nc = db.execute("SELECT COUNT(*) AS n FROM cajas").fetchone()["n"]
+    if nc == 0:
+        db.execute(
+            "INSERT INTO cajas(name, created_at) VALUES(?,?)",
+            ("Segunda caja", int(time.time())),
         )
     db.commit()
     db.close()
@@ -331,6 +359,21 @@ def _product_from_request():
         if err:
             return None, err
         p[key] = v
+    # Campos del catálogo: caja (grupo/enviada), tallas y cantidad
+    raw_caja = data.get("caja_id")
+    caja_id = None
+    if raw_caja not in (None, "", "none", "null"):
+        try:
+            caja_id = int(raw_caja)
+        except (TypeError, ValueError):
+            return None, "«Caja» no es válida."
+    p["caja_id"] = caja_id
+    p["size_shoes"] = (data.get("size_shoes") or "").strip()[:40]
+    p["size_shirts"] = (data.get("size_shirts") or "").strip()[:40]
+    qty, err = _num(data.get("quantity"), "Cantidad")
+    if err:
+        return None, err
+    p["quantity"] = qty if (data.get("quantity") not in (None, "")) else 1
     return p, None
 
 
@@ -370,17 +413,35 @@ def _ganancia_libre(cost_lps, sale_lps):
     return (sale_lps or 0) - (cost_lps or 0)
 
 
-def _compute_totals(db):
-    """Totales como la planilla: inversión, venta y ganancia libre neta."""
-    products = db.execute(
-        "SELECT id, description, purchase_usd, cost_lps, sale_lps FROM products ORDER BY id"
-    ).fetchall()
-    expenses = db.execute(
-        "SELECT id, name, amount_usd, amount_lps FROM expenses ORDER BY id"
-    ).fetchall()
-    total_usd = sum(p["purchase_usd"] or 0 for p in products)
-    total_costo_lps = sum(p["cost_lps"] or 0 for p in products)
-    total_venta_lps = sum(p["sale_lps"] or 0 for p in products)
+def _compute_totals(db, caja_id=None):
+    """Totales como la planilla: inversión, venta y ganancia libre neta.
+
+    caja_id=None -> todo; si se indica, solo esa caja (y sus gastos).
+    Las cantidades multiplican los montos unitarios.
+    """
+    psql = ("SELECT id, description, purchase_usd, cost_lps, sale_lps,"
+            " quantity, caja_id, size_shoes, size_shirts FROM products")
+    pparams: list = []
+    if caja_id is not None:
+        psql += " WHERE caja_id=?"
+        pparams.append(caja_id)
+    psql += " ORDER BY id"
+    products = db.execute(psql, pparams).fetchall()
+    esql = "SELECT id, name, amount_usd, amount_lps, caja_id FROM expenses"
+    eparams: list = []
+    if caja_id is not None:
+        esql += " WHERE caja_id=?"
+        eparams.append(caja_id)
+    esql += " ORDER BY id"
+    expenses = db.execute(esql, eparams).fetchall()
+
+    def _qty(p):
+        q = p["quantity"]
+        return q if q not in (None, "") else 1
+
+    total_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in products)
+    total_costo_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in products)
+    total_venta_lps = sum((p["sale_lps"] or 0) * _qty(p) for p in products)
     exp_usd = sum(e["amount_usd"] or 0 for e in expenses)
     exp_lps = sum(e["amount_lps"] or 0 for e in expenses)
     inversion_total_lps = total_costo_lps + exp_lps
@@ -390,7 +451,7 @@ def _compute_totals(db):
             {
                 "id": p["id"],
                 "name": p["description"],
-                "ganancia_libre": _ganancia_libre(p["cost_lps"], p["sale_lps"]),
+                "ganancia_libre": _ganancia_libre(p["cost_lps"], p["sale_lps"]) * _qty(p),
             }
             for p in products
         ),
@@ -410,6 +471,16 @@ def _compute_totals(db):
         "by_product": by_product,
         "n_products": len(products),
     }
+
+
+def _parse_caja_param(value):
+    """?caja_id= -> None (todas); número -> int; otro -> (None, error)."""
+    if value in (None, "", "all"):
+        return None, None
+    try:
+        return int(value), None
+    except (TypeError, ValueError):
+        return None, "caja_id no válido."
 
 
 # ---------------- Vistas ----------------
@@ -453,28 +524,68 @@ def apple_touch_icon():
 
 # ---------------- API: productos ----------------
 
-def _product_json(row):
+_PRODUCT_COLS = (
+    "id, description, photo, purchase_usd, cost_lps, sale_lps, created_at,"
+    " caja_id, size_shoes, size_shirts, quantity"
+)
+
+
+def _caja_name(db, caja_id):
+    if not caja_id:
+        return None
+    r = db.execute("SELECT name FROM cajas WHERE id=?", (caja_id,)).fetchone()
+    return r["name"] if r else None
+
+
+def _product_json(row, caja_name=None):
     has_photo = bool(row["photo"])
+    qty = row["quantity"] if row["quantity"] not in (None, "") else 1
     return {
         "id": row["id"],
         "description": row["description"],
         "purchase_usd": row["purchase_usd"],
         "cost_lps": row["cost_lps"],
         "sale_lps": row["sale_lps"],
-        "ganancia_libre": _ganancia_libre(row["cost_lps"], row["sale_lps"]),
+        "ganancia_libre": _ganancia_libre(row["cost_lps"], row["sale_lps"]) * qty,
         "photo_url": f"/api/photo/{row['id']}" if has_photo else None,
         "created_at": row["created_at"],
+        "caja_id": row["caja_id"],
+        "caja_name": caja_name,
+        "size_shoes": row["size_shoes"] or "",
+        "size_shirts": row["size_shirts"] or "",
+        "quantity": qty,
     }
+
+
+def _check_caja(db, caja_id):
+    if caja_id is None:
+        return None
+    ok = db.execute("SELECT id FROM cajas WHERE id=?", (caja_id,)).fetchone()
+    return None if ok else "La caja no existe."
 
 
 @app.route("/api/products", methods=["GET"])
 def api_list_products():
     db = get_db()
-    rows = db.execute(
-        "SELECT id, description, photo, purchase_usd, cost_lps, sale_lps, created_at"
-        " FROM products ORDER BY id"
-    ).fetchall()
-    return jsonify([_product_json(r) for r in rows])
+    caja = request.args.get("caja_id", "")
+    sql = (
+        "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
+    )
+    params: list = []
+    if caja == "none":
+        sql += " WHERE p.caja_id IS NULL"
+    elif caja not in ("", "all"):
+        try:
+            cid = int(caja)
+        except (TypeError, ValueError):
+            return jsonify({"error": "caja_id no válido."}), 400
+        sql += " WHERE p.caja_id=?"
+        params.append(cid)
+    sql += " ORDER BY p.id"
+    rows = db.execute(sql, params).fetchall()
+    return jsonify([_product_json(r, r["caja_name"]) for r in rows])
 
 
 @app.route("/api/products", methods=["POST"])
@@ -483,36 +594,45 @@ def api_create_product():
     p, err = _product_from_request()
     if err:
         return jsonify({"error": err}), 400
+    err = _check_caja(db, p["caja_id"])
+    if err:
+        return jsonify({"error": err}), 400
     try:
         photo, mime = _photo_bytes_from_request(db)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
     cur = db.execute(
         "INSERT INTO products(description, photo, photo_mime, purchase_usd, cost_lps,"
-        " sale_lps, created_at) VALUES(?,?,?,?,?,?,?)",
+        " sale_lps, created_at, caja_id, size_shoes, size_shirts, quantity)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (
             p["description"], photo, mime or "",
             p["purchase_usd"], p["cost_lps"], p["sale_lps"], int(time.time()),
+            p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
         ),
     )
     db.commit()
     row = db.execute(
-        "SELECT id, description, photo, purchase_usd, cost_lps, sale_lps, created_at"
-        " FROM products WHERE id=?", (cur.lastrowid,)
+        "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
+        " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
-    return jsonify(_product_json(row)), 201
+    return jsonify(_product_json(row, row["caja_name"])), 201
 
 
 @app.route("/api/products/<int:pid>", methods=["GET"])
 def api_get_product(pid):
     db = get_db()
     row = db.execute(
-        "SELECT id, description, photo, purchase_usd, cost_lps, sale_lps, created_at"
-        " FROM products WHERE id=?", (pid,)
+        "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
+        " WHERE p.id=?", (pid,)
     ).fetchone()
     if not row:
         return jsonify({"error": "Producto no encontrado."}), 404
-    return jsonify(_product_json(row))
+    return jsonify(_product_json(row, row["caja_name"]))
 
 
 @app.route("/api/products/<int:pid>", methods=["PUT"])
@@ -524,6 +644,9 @@ def api_update_product(pid):
     p, err = _product_from_request()
     if err:
         return jsonify({"error": err}), 400
+    err = _check_caja(db, p["caja_id"])
+    if err:
+        return jsonify({"error": err}), 400
     try:
         photo, mime = _photo_bytes_from_request(db)
     except ValueError as e:
@@ -533,26 +656,30 @@ def api_update_product(pid):
         remove_photo = bool((request.get_json(silent=True) or {}).get("remove_photo"))
     elif "remove_photo" in request.form:
         remove_photo = True
+    new_vals = (
+        p["description"], p["purchase_usd"], p["cost_lps"], p["sale_lps"],
+        p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
+    )
     if photo is not None:
         db.execute(
             "UPDATE products SET description=?, photo=?, photo_mime=?,"
-            " purchase_usd=?, cost_lps=?, sale_lps=? WHERE id=?",
-            (
-                p["description"], photo, mime or "",
-                p["purchase_usd"], p["cost_lps"], p["sale_lps"], pid,
-            ),
+            " purchase_usd=?, cost_lps=?, sale_lps=?,"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            (p["description"], photo, mime or "") + new_vals[1:] + (pid,),
         )
     elif remove_photo:
         db.execute(
             "UPDATE products SET description=?, photo=NULL, photo_mime='',"
-            " purchase_usd=?, cost_lps=?, sale_lps=? WHERE id=?",
-            (p["description"], p["purchase_usd"], p["cost_lps"], p["sale_lps"], pid),
+            " purchase_usd=?, cost_lps=?, sale_lps=?,"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            new_vals + (pid,),
         )
     else:
         db.execute(
             "UPDATE products SET description=?,"
-            " purchase_usd=?, cost_lps=?, sale_lps=? WHERE id=?",
-            (p["description"], p["purchase_usd"], p["cost_lps"], p["sale_lps"], pid),
+            " purchase_usd=?, cost_lps=?, sale_lps=?,"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            new_vals + (pid,),
         )
     db.commit()
     return jsonify({"ok": True})
@@ -632,9 +759,23 @@ def photo_product(pid):
 def api_list_expenses():
     db = get_db()
     rows = db.execute(
-        "SELECT id, name, amount_usd, amount_lps FROM expenses ORDER BY id"
+        "SELECT e.id, e.name, e.amount_usd, e.amount_lps, e.caja_id, c.name AS caja_name"
+        " FROM expenses e LEFT JOIN cajas c ON c.id=e.caja_id ORDER BY e.id"
     ).fetchall()
-    return jsonify([dict(zip(["id", "name", "amount_usd", "amount_lps"], r)) for r in rows])
+    return jsonify([dict(zip(
+        ["id", "name", "amount_usd", "amount_lps", "caja_id", "caja_name"], r)) for r in rows])
+
+
+def _expense_caja_id(db, data):
+    raw = data.get("caja_id")
+    if raw in (None, "", "none", "null"):
+        return None, None
+    try:
+        cid = int(raw)
+    except (TypeError, ValueError):
+        return None, "«Caja» no es válida."
+    err = _check_caja(db, cid)
+    return (None, err) if err else (cid, None)
 
 
 @app.route("/api/expenses", methods=["POST"])
@@ -650,13 +791,16 @@ def api_create_expense():
     if err:
         return jsonify({"error": err}), 400
     db = get_db()
+    caja_id, err = _expense_caja_id(db, data)
+    if err:
+        return jsonify({"error": err}), 400
     cur = db.execute(
-        "INSERT INTO expenses(name, amount_usd, amount_lps) VALUES(?,?,?)",
-        (name, usd, lps),
+        "INSERT INTO expenses(name, amount_usd, amount_lps, caja_id) VALUES(?,?,?,?)",
+        (name, usd, lps, caja_id),
     )
     db.commit()
     return jsonify({"id": cur.lastrowid, "name": name, "amount_usd": usd,
-                    "amount_lps": lps}), 201
+                    "amount_lps": lps, "caja_id": caja_id}), 201
 
 
 @app.route("/api/expenses/<int:eid>", methods=["PUT"])
@@ -675,9 +819,12 @@ def api_update_expense(eid):
     lps, err = _num(data.get("amount_lps"), "Monto en LPS")
     if err:
         return jsonify({"error": err}), 400
+    caja_id, err = _expense_caja_id(db, data)
+    if err:
+        return jsonify({"error": err}), 400
     db.execute(
-        "UPDATE expenses SET name=?, amount_usd=?, amount_lps=? WHERE id=?",
-        (name, usd, lps, eid),
+        "UPDATE expenses SET name=?, amount_usd=?, amount_lps=?, caja_id=? WHERE id=?",
+        (name, usd, lps, caja_id, eid),
     )
     db.commit()
     return jsonify({"ok": True})
@@ -694,13 +841,77 @@ def api_delete_expense(eid):
     return jsonify({"ok": True})
 
 
+# ---------------- API: cajas (grupos por enviada) ----------------
+
+@app.route("/api/cajas", methods=["GET"])
+def api_list_cajas():
+    db = get_db()
+    rows = db.execute(
+        "SELECT c.id, c.name, COUNT(p.id) AS n_products FROM cajas c"
+        " LEFT JOIN products p ON p.caja_id=c.id"
+        " GROUP BY c.id ORDER BY c.id"
+    ).fetchall()
+    return jsonify([dict(zip(["id", "name", "n_products"], r)) for r in rows])
+
+
+@app.route("/api/cajas", methods=["POST"])
+def api_create_caja():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()[:80]
+    if not name:
+        return jsonify({"error": "El nombre de la caja es obligatorio."}), 400
+    db = get_db()
+    cur = db.execute(
+        "INSERT INTO cajas(name, created_at) VALUES(?,?)", (name, int(time.time()))
+    )
+    db.commit()
+    return jsonify({"id": cur.lastrowid, "name": name}), 201
+
+
+@app.route("/api/cajas/<int:cid>", methods=["PUT"])
+def api_update_caja(cid):
+    db = get_db()
+    row = db.execute("SELECT id FROM cajas WHERE id=?", (cid,)).fetchone()
+    if not row:
+        return jsonify({"error": "Caja no encontrada."}), 404
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()[:80]
+    if not name:
+        return jsonify({"error": "El nombre de la caja es obligatorio."}), 400
+    db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cajas/<int:cid>", methods=["DELETE"])
+def api_delete_caja(cid):
+    db = get_db()
+    row = db.execute("SELECT id FROM cajas WHERE id=?", (cid,)).fetchone()
+    if not row:
+        return jsonify({"error": "Caja no encontrada."}), 404
+    n = db.execute(
+        "SELECT COUNT(*) AS n FROM products WHERE caja_id=?", (cid,)
+    ).fetchone()["n"]
+    if n:
+        return jsonify(
+            {"error": f"Esta caja tiene {n} producto(s). Muévelos o elimínalos primero."}
+        ), 400
+    db.execute("DELETE FROM expenses WHERE caja_id=?", (cid,))
+    db.execute("DELETE FROM cajas WHERE id=?", (cid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 # ---------------- API: resumen y hoja ----------------
 
 @app.route("/api/summary")
 def api_summary():
     """Totales y datos para las gráficas (recalculados cada vez)."""
     db = get_db()
-    t = _compute_totals(db)
+    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    if err:
+        return jsonify({"error": err}), 400
+    t = _compute_totals(db, caja_id)
     return jsonify(
         {
             "n_products": t["n_products"],
@@ -721,48 +932,59 @@ def api_summary():
     )
 
 
-SHEET_COLUMNS = ["Describcion", "Total pagado $$", "Pagado en LPS", "Ganancia",
+SHEET_COLUMNS = ["Describcion", "Talla zapato", "Talla camisa", "Cant.",
+                 "Total pagado $$", "Pagado en LPS", "Ganancia",
                  "Menos gastos ganancia libre"]
 
 COMMISSION_NAME = "Comisión tía Wendy"
 COMMISSION_RATE = 0.45  # 45% de la ganancia libre (después de compra, envío e impuestos)
 
 
-def _sheet_data(db):
+def _sheet_data(db, caja_id=None):
     """Filas de la hoja como la planilla: por producto + resumen."""
-    t = _compute_totals(db)
+    t = _compute_totals(db, caja_id)
     products = t["products"]
+
+    def _qty(p):
+        q = p["quantity"]
+        return q if q not in (None, "") else 1
+
     rows = []
     for p in products:
+        q = _qty(p)
         rows.append(
             [
                 p["description"],
-                -float(p["purchase_usd"] or 0),
-                -float(p["cost_lps"] or 0),
-                float(p["sale_lps"] or 0),
-                _ganancia_libre(p["cost_lps"], p["sale_lps"]),
+                p["size_shoes"] or "",
+                p["size_shirts"] or "",
+                q,
+                -float(p["purchase_usd"] or 0) * q,
+                -float(p["cost_lps"] or 0) * q,
+                float(p["sale_lps"] or 0) * q,
+                _ganancia_libre(p["cost_lps"], p["sale_lps"]) * q,
             ]
         )
+    pad = ["", "", ""]
     summary_rows = [
-        ["Total :", -t["total_usd"], -t["total_costo_lps"], t["total_venta_lps"],
+        ["Total :"] + pad + [-t["total_usd"], -t["total_costo_lps"], t["total_venta_lps"],
          t["total_venta_lps"] - t["total_costo_lps"]],
     ]
     for e in t["expenses"]:
         summary_rows.append(
-            [e["name"], -float(e["amount_usd"] or 0), -float(e["amount_lps"] or 0),
+            [e["name"]] + pad + [-float(e["amount_usd"] or 0), -float(e["amount_lps"] or 0),
              "", ""]
         )
     summary_rows.append(
-        ["Total + envío", -(t["total_usd"] + t["exp_usd"]),
+        ["Total + envío"] + pad + [-(t["total_usd"] + t["exp_usd"]),
          -(t["total_costo_lps"] + t["exp_lps"]), t["total_venta_lps"],
          t["ganancia_libre_total"]]
     )
     comision = t["ganancia_libre_total"] * COMMISSION_RATE
     summary_rows.append(
-        [f"{COMMISSION_NAME} (45%)", "", "", "", -comision]
+        [f"{COMMISSION_NAME} (45%)"] + pad + ["", "", "", -comision]
     )
     summary_rows.append(
-        ["Christian (55%)", "", "", "",
+        ["Christian (55%)"] + pad + ["", "", "",
          t["ganancia_libre_total"] - comision]
     )
     return {"columns": SHEET_COLUMNS, "rows": rows, "summary_rows": summary_rows}
@@ -771,20 +993,29 @@ def _sheet_data(db):
 def _fmt_num(v):
     if v == "" or v is None:
         return ""
-    return f"{v:.2f}"
+    try:
+        return f"{float(v):.2f}"
+    except (TypeError, ValueError):
+        return str(v)
 
 
 @app.route("/api/sheet")
 def api_sheet():
     db = get_db()
-    return jsonify(_sheet_data(db))
+    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify(_sheet_data(db, caja_id))
 
 
 @app.route("/api/sheet.csv")
 def api_sheet_csv():
     """Descarga la hoja en CSV (con BOM para que Excel lo abra bien)."""
     db = get_db()
-    sheet = _sheet_data(db)
+    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    if err:
+        return jsonify({"error": err}), 400
+    sheet = _sheet_data(db, caja_id)
     out = io.StringIO()
     w = csv.writer(out)
     w.writerow(sheet["columns"])
@@ -794,10 +1025,15 @@ def api_sheet_csv():
     for r in sheet["summary_rows"]:
         w.writerow([r[0]] + [_fmt_num(v) for v in r[1:]])
     data = "\ufeff" + out.getvalue()  # BOM para Excel
+    fname = "inventario.csv"
+    if caja_id:
+        cname = _caja_name(db, caja_id) or f"caja-{caja_id}"
+        safe = "".join(ch if ch.isalnum() else "-" for ch in cname).strip("-")[:40] or f"caja-{caja_id}"
+        fname = f"inventario-{safe}.csv"
     return Response(
         data,
         mimetype="text/csv; charset=utf-8",
-        headers={"Content-Disposition": "attachment; filename=inventario.csv"},
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
     )
 
 
