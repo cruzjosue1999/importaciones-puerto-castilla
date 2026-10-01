@@ -414,23 +414,28 @@ def _ganancia_libre(cost_lps, sale_lps):
     return (sale_lps or 0) - (cost_lps or 0)
 
 
-def _compute_totals(db, caja_id=None):
+def _compute_totals(db, caja_id=None, unassigned=False):
     """Totales como la planilla: inversión, venta y ganancia libre neta.
 
     caja_id=None -> todo; si se indica, solo esa caja (y sus gastos).
+    unassigned=True -> solo productos/gastos sin caja asignada.
     Las cantidades multiplican los montos unitarios.
     """
     psql = ("SELECT id, description, purchase_usd, cost_lps, sale_lps,"
             " quantity, caja_id, size_shoes, size_shirts FROM products")
     pparams: list = []
-    if caja_id is not None:
+    if unassigned:
+        psql += " WHERE caja_id IS NULL"
+    elif caja_id is not None:
         psql += " WHERE caja_id=?"
         pparams.append(caja_id)
     psql += " ORDER BY id"
     products = db.execute(psql, pparams).fetchall()
     esql = "SELECT id, name, amount_usd, amount_lps, caja_id FROM expenses"
     eparams: list = []
-    if caja_id is not None:
+    if unassigned:
+        esql += " WHERE caja_id IS NULL"
+    elif caja_id is not None:
         esql += " WHERE caja_id=?"
         eparams.append(caja_id)
     esql += " ORDER BY id"
@@ -949,9 +954,9 @@ COMMISSION_NAME = "Comisión tía Wendy"
 COMMISSION_RATE = 0.45  # 45% de la ganancia libre (después de compra, envío e impuestos)
 
 
-def _sheet_data(db, caja_id=None):
+def _sheet_data(db, caja_id=None, unassigned=False):
     """Filas de la hoja como la planilla: por producto + resumen."""
-    t = _compute_totals(db, caja_id)
+    t = _compute_totals(db, caja_id, unassigned)
     products = t["products"]
 
     def _qty(p):
@@ -1005,10 +1010,38 @@ def _fmt_num(v):
         return str(v)
 
 
+def _per_caja_sheets(db):
+    """Hojas individuales por caja (vista 'Todas las cajas' en Hoja):
+    cada caja con su propia hoja, sin sumar los totales entre cajas.
+    Los productos/gastos sin caja asignada van en una hoja aparte
+    ('Sin caja asignada') para que nada se pierda."""
+    sheets = []
+    cajas = db.execute("SELECT id, name FROM cajas ORDER BY id").fetchall()
+    for c in cajas:
+        d = _sheet_data(db, c["id"])
+        sheets.append({"caja_id": c["id"], "caja_name": c["name"],
+                       "columns": d["columns"], "rows": d["rows"],
+                       "summary_rows": d["summary_rows"]})
+    n_loose = db.execute(
+        "SELECT (SELECT COUNT(*) FROM products WHERE caja_id IS NULL)"
+        " + (SELECT COUNT(*) FROM expenses WHERE caja_id IS NULL)"
+    ).fetchone()[0]
+    if n_loose:
+        d = _sheet_data(db, unassigned=True)
+        sheets.append({"caja_id": None, "caja_name": "Sin caja asignada",
+                       "columns": d["columns"], "rows": d["rows"],
+                       "summary_rows": d["summary_rows"]})
+    return sheets
+
+
 @app.route("/api/sheet")
 def api_sheet():
     db = get_db()
-    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    raw = request.args.get("caja_id", "")
+    if raw == "all":
+        # Vista "Todas las cajas": una hoja por caja, sin sumar entre cajas.
+        return jsonify({"mode": "per_caja", "sheets": _per_caja_sheets(db)})
+    caja_id, err = _parse_caja_param(raw)
     if err:
         return jsonify({"error": err}), 400
     return jsonify(_sheet_data(db, caja_id))
@@ -1018,7 +1051,29 @@ def api_sheet():
 def api_sheet_csv():
     """Descarga la hoja en CSV (con BOM para que Excel lo abra bien)."""
     db = get_db()
-    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    raw = request.args.get("caja_id", "")
+    if raw == "all":
+        # Una sección por caja, cada una con su propia hoja.
+        sheets = _per_caja_sheets(db)
+        out = io.StringIO()
+        w = csv.writer(out)
+        for i, sh in enumerate(sheets):
+            if i:
+                w.writerow([])
+            w.writerow([f"Caja: {sh['caja_name']}"])
+            w.writerow(sh["columns"])
+            for r in sh["rows"]:
+                w.writerow([r[0]] + [_fmt_num(v) for v in r[1:]])
+            w.writerow([])
+            for r in sh["summary_rows"]:
+                w.writerow([r[0]] + [_fmt_num(v) for v in r[1:]])
+        data = "\ufeff" + out.getvalue()  # BOM para Excel
+        return Response(
+            data,
+            mimetype="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=inventario-todas.csv"},
+        )
+    caja_id, err = _parse_caja_param(raw)
     if err:
         return jsonify({"error": err}), 400
     sheet = _sheet_data(db, caja_id)
