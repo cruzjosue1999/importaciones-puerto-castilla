@@ -595,7 +595,7 @@
 
   function drawDonut(s) {
     var box = $('chart-donut'), leg = $('legend-donut');
-    var inv = s.inversion_total_lps, prof = s.ganancia_libre_total;
+    var inv = s.total_costo_lps || 0, prof = (s.total_venta_lps || 0) - inv;
     var total = inv + Math.max(prof, 0);
     if (total <= 0) {
       box.innerHTML = '<p class="hint">Aún no hay inventario con valor.</p>';
@@ -616,7 +616,7 @@
       '<text x="85" y="100" text-anchor="middle" class="donut-lbl">Valor del inventario</text>' +
       '</svg>';
     leg.innerHTML = legendHtml([
-      { color: '#0a2a5e', label: 'Inversión (costos + gastos)', amount: fmtL(inv), pct: Math.round(inv / total * 100) },
+      { color: '#0a2a5e', label: 'Inversión en productos', amount: fmtL(inv), pct: Math.round(inv / total * 100) },
       { color: '#f0b429', label: 'Ganancia potencial', amount: fmtL(prof), pct: Math.round(Math.max(prof, 0) / total * 100) }
     ]);
   }
@@ -662,13 +662,17 @@
       var cv = $('charts-caja') ? $('charts-caja').value : 'all';
       if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
       var s = await api(url);
+      // Inversión = solo lo pagado en los productos (sin Tax/Envío);
+      // la ganancia es el valor de venta menos esa inversión.
+      var inversion = s.total_costo_lps || 0;
+      var ganancia = (s.total_venta_lps || 0) - inversion;
       var margen = s.total_venta_lps > 0
-        ? (s.ganancia_libre_total / s.total_venta_lps * 100).toFixed(1) + '%'
+        ? (ganancia / s.total_venta_lps * 100).toFixed(1) + '%'
         : '—';
       box.innerHTML =
-        profitCard('💰', 'Inversión en inventario', fmtL(s.inversion_total_lps)) +
+        profitCard('💰', 'Inversión en inventario', fmtL(inversion)) +
         profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps)) +
-        profitCard('📈', 'Ganancia potencial', fmtL(s.ganancia_libre_total)) +
+        profitCard('📈', 'Ganancia potencial', fmtL(ganancia)) +
         profitCard('📊', 'Margen promedio', margen);
       drawDonut(s);
       drawPie(s);
