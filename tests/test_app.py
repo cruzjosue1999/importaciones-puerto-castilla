@@ -407,3 +407,16 @@ def test_index_and_manifest(client):
     assert m["name"] == "Importaciones a Puerto Castilla"
     assert m["short_name"] == "Importaciones"
     assert m["lang"] == "es"
+
+
+def test_nueva_caja_nace_con_tax_y_envio_propios(client):
+    _clean_cajas(client)
+    cid = client.post("/api/cajas", json={"name": "Caja auto"}).get_json()["id"]
+    exps = [e for e in client.get("/api/expenses").get_json() if e.get("caja_id") == cid]
+    names = sorted(e["name"] for e in exps)
+    assert names == ["Envío", "Tax"]
+    assert all(e["amount_usd"] == 0 and e["amount_lps"] == 0 for e in exps)
+    # Al borrar la carpeta se van también sus Tax/Envío
+    assert client.delete(f"/api/cajas/{cid}").status_code == 200
+    rest = [e for e in client.get("/api/expenses").get_json() if e.get("caja_id") == cid]
+    assert rest == []

@@ -865,8 +865,16 @@ def api_create_caja():
     cur = db.execute(
         "INSERT INTO cajas(name, created_at) VALUES(?,?)", (name, int(time.time()))
     )
+    new_id = cur.lastrowid
+    # Cada inversión nace con sus propios Tax y Envío en $0, sin mezclarse
+    # con los de otras carpetas; él solo edita los montos.
+    for exp_name in ("Tax", "Envío"):
+        db.execute(
+            "INSERT INTO expenses(name, amount_usd, amount_lps, caja_id) VALUES(?,?,?,?)",
+            (exp_name, 0, 0, new_id),
+        )
     db.commit()
-    return jsonify({"id": cur.lastrowid, "name": name}), 201
+    return jsonify({"id": new_id, "name": name}), 201
 
 
 @app.route("/api/cajas/<int:cid>", methods=["PUT"])
