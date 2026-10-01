@@ -203,3 +203,22 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .btn-new-inv { width: 100%; margin-bottom: 10px; }
 #inv-create { margin-bottom: 12px; }
 #inv-create h3 { margin: 0 0 10px; font-size: 16px; }
+
+/* ---- Pull-to-refresh: jalar hacia abajo desde el tope recarga la app ---- */
+#ptr-indicator {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  height: 56px; transform: translateY(-60px);
+  background: var(--card); color: var(--text);
+  font-size: .92rem; font-weight: 600;
+  box-shadow: 0 2px 10px rgba(0,0,0,.18);
+  pointer-events: none;
+}
+#ptr-indicator .ptr-arrow { display: inline-block; font-size: 1.25rem; transition: transform .2s; }
+#ptr-indicator.ready .ptr-arrow { transform: rotate(180deg); }
+#ptr-indicator .ptr-spinner {
+  width: 20px; height: 20px; border-radius: 50%;
+  border: 3px solid #cbd5e1; border-top-color: var(--navy);
+  animation: ptr-spin .7s linear infinite;
+}
+@keyframes ptr-spin { to { transform: rotate(360deg); } }
