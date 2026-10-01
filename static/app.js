@@ -723,11 +723,16 @@
       var margen = s.total_venta_lps > 0
         ? (ganancia / s.total_venta_lps * 100).toFixed(1) + '%'
         : '—';
+      // Comisión: 45% tía Wendy y 55% Christian sobre la ganancia libre
+      // (igual que en la Hoja: después de compra, Tax y Envío).
+      var libre = s.ganancia_libre_total || 0;
       box.innerHTML =
         profitCard('💰', 'Inversión en inventario', fmtL(inversion)) +
         profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps)) +
         profitCard('📈', 'Ganancia potencial', fmtL(ganancia)) +
-        profitCard('📊', 'Margen promedio', margen);
+        profitCard('📊', 'Margen promedio', margen) +
+        profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45)) +
+        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55));
       drawDonut(s);
       drawPie(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
