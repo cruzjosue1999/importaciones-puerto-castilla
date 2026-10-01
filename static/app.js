@@ -687,32 +687,53 @@
     return '<td>' + escapeHtml(v) + '</td>';
   }
 
+  function sheetTableHtml(sh) {
+    var h = '<table class="sheet"><thead><tr>' + sh.columns.map(function (c) {
+      return '<th>' + escapeHtml(c) + '</th>';
+    }).join('') + '</tr></thead><tbody>';
+    h += sh.rows.map(function (r) {
+      return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
+    }).join('');
+    h += sh.summary_rows.map(function (r, idx) {
+      var cls = idx === sh.summary_rows.length - 1 ? 'grand' : 'summary';
+      return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
+    }).join('');
+    return h + '</tbody></table>';
+  }
+
   async function loadSheet() {
     try {
-      var url = '/api/sheet';
       var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
-      if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
+      var url = '/api/sheet?caja_id=' + encodeURIComponent(cv || 'all');
       var s = await api(url);
-      $('sheet-head').innerHTML = '<tr>' + s.columns.map(function (c) {
-        return '<th>' + escapeHtml(c) + '</th>';
-      }).join('') + '</tr>';
-      var html = s.rows.map(function (r) {
-        return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
-      }).join('');
-      html += s.summary_rows.map(function (r, idx) {
-        var cls = idx === s.summary_rows.length - 1 ? 'grand' : 'summary';
-        return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
-      }).join('');
-      $('sheet-body').innerHTML = html;
+      if (s.sheets) {
+        // "Todas las cajas": una hoja por caja, cada una con la suya.
+        $('sheet-wrap').innerHTML = s.sheets.map(function (sh) {
+          return '<h3 class="sheet-caja-title">📦 ' + escapeHtml(sh.caja_name) + '</h3>' +
+            sheetTableHtml(sh);
+        }).join('');
+      } else {
+        $('sheet-wrap').innerHTML = '<table id="sheet-table" class="sheet">' +
+          '<thead id="sheet-head"><tr>' + s.columns.map(function (c) {
+            return '<th>' + escapeHtml(c) + '</th>';
+          }).join('') + '</tr></thead>' +
+          '<tbody id="sheet-body">' +
+          s.rows.map(function (r) {
+            return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
+          }).join('') +
+          s.summary_rows.map(function (r, idx) {
+            var cls = idx === s.summary_rows.length - 1 ? 'grand' : 'summary';
+            return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
+          }).join('') +
+          '</tbody></table>';
+      }
     } catch (e) { notice('No se pudo cargar la hoja: ' + e.message, true); }
   }
 
   $('btn-print').addEventListener('click', function () { window.print(); });
   $('btn-csv').addEventListener('click', function () {
     var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
-    var url = '/api/sheet.csv';
-    if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
-    window.location.href = url;
+    window.location.href = '/api/sheet.csv?caja_id=' + encodeURIComponent(cv || 'all');
   });
   $('sheet-caja').addEventListener('change', loadSheet);
   $('charts-caja').addEventListener('change', loadSummary);

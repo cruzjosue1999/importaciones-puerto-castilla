@@ -184,6 +184,9 @@ table.sheet tr.grand td { background: #e0e7ff; }
   .cards { grid-template-columns: 1fr 1fr; }
 }
 
+.sheet-caja-title { margin: 14px 0 8px; font-size: 1rem; }
+.sheet-caja-title:first-child { margin-top: 0; }
+
 /* ---- Impresión de la hoja ---- */
 @media print {
   .topbar, .tabbar, .sheet-actions, .notice, #tab-productos, #tab-agregar,
@@ -197,6 +200,8 @@ table.sheet tr.grand td { background: #e0e7ff; }
   }
   .sheet-wrap { box-shadow: none; border-radius: 0; overflow: visible; }
   table.sheet { font-size: 11px; min-width: 0; }
+  .sheet-caja-title { break-before: page; margin-top: 0; }
+  .sheet-caja-title:first-child { break-before: auto; }
 }
 
 /* Crear inversión desde Productos */
