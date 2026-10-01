@@ -64,6 +64,16 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 .card-toggle-title { font-weight: 700; font-size: 1.02rem; flex: 1; }
 .card-toggle .chev { color: var(--muted); font-size: .85rem; }
 .card-detail { border-top: 1px solid var(--border); }
+
+/* ---- Productos agrupados por caja (vista "Todas") ---- */
+.prod-group { margin-bottom: 10px; background: var(--card); border-radius: var(--radius); box-shadow: 0 1px 3px rgba(0,0,0,.08); overflow: hidden; }
+.group-toggle { width: 100%; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: transparent; border: 0; font-size: 1rem; text-align: left; cursor: pointer; color: var(--text); }
+.group-name { font-weight: 700; flex: 1; }
+.group-meta { font-size: .85rem; color: var(--muted); }
+.group-toggle .chev { color: var(--muted); font-size: .85rem; }
+.group-body { padding: 0 8px 8px; }
+.group-body .card { margin-bottom: 8px; box-shadow: none; border: 1px solid var(--border); border-radius: 10px; }
+.group-body .card:last-child { margin-bottom: 0; }
 .nums { display: grid; gap: 4px; margin: 0 0 10px; }
 .num-row { display: flex; justify-content: space-between; font-size: .92rem; padding: 3px 0; border-bottom: 1px dotted var(--border); }
 .num-row:last-child { border-bottom: none; }

@@ -257,6 +257,38 @@
       '<span class="lbl">' + label + '</span><span class="val">' + value + '</span></div>';
   }
 
+  function productGroup(name, items) {
+    var body = items.length
+      ? items.map(productCard).join('')
+      : '<p class="hint" style="padding: 4px 6px 10px;">Sin productos.</p>';
+    return '<div class="prod-group">' +
+      '<button type="button" class="group-toggle">' +
+      '<span class="group-name">📦 ' + escapeHtml(name) + '</span>' +
+      '<span class="group-meta">' + items.length + ' prod.</span>' +
+      '<span class="chev">▼</span>' +
+      '</button>' +
+      '<div class="group-body hidden">' + body + '</div></div>';
+  }
+
+  function wireAccordion(box) {
+    box.querySelectorAll('.group-toggle').forEach(function (t) {
+      t.addEventListener('click', function () {
+        var d = t.parentNode.querySelector('.group-body');
+        var chev = t.querySelector('.chev');
+        var collapsed = d.classList.toggle('hidden');
+        chev.textContent = collapsed ? '▼' : '▲';
+      });
+    });
+    box.querySelectorAll('.card-toggle').forEach(function (t) {
+      t.addEventListener('click', function () {
+        var d = t.parentNode.querySelector('.card-detail');
+        var chev = t.querySelector('.chev');
+        var collapsed = d.classList.toggle('hidden');
+        chev.textContent = collapsed ? '▼' : '▲';
+      });
+    });
+  }
+
   async function loadProducts() {
     var box = $('product-list');
     try {
@@ -264,15 +296,25 @@
       if (productFilter !== 'all') url += '?caja_id=' + encodeURIComponent(productFilter);
       var list = await api(url);
       $('no-products').classList.toggle('hidden', list.length > 0);
-      box.innerHTML = list.map(productCard).join('');
-      box.querySelectorAll('.card-toggle').forEach(function (t) {
-        t.addEventListener('click', function () {
-          var d = t.parentNode.querySelector('.card-detail');
-          var chev = t.querySelector('.chev');
-          var collapsed = d.classList.toggle('hidden');
-          chev.textContent = collapsed ? '▼' : '▲';
+      if (productFilter === 'all') {
+        // "Todas": una tarjeta por caja (en el orden de la app) con sus productos adentro.
+        var groups = [], seen = {};
+        cajasCache.forEach(function (c) {
+          groups.push({ id: c.id, name: c.name, items: [] });
+          seen[String(c.id)] = groups[groups.length - 1];
         });
-      });
+        var noneGroup = { id: 'none', name: 'Sin inversión', items: [] };
+        list.forEach(function (p) {
+          var g = (p.caja_id !== null && p.caja_id !== undefined && seen[String(p.caja_id)])
+            ? seen[String(p.caja_id)] : noneGroup;
+          g.items.push(p);
+        });
+        if (noneGroup.items.length) groups.push(noneGroup);
+        box.innerHTML = groups.map(function (g) { return productGroup(g.name, g.items); }).join('');
+      } else {
+        box.innerHTML = list.map(productCard).join('');
+      }
+      wireAccordion(box);
       box.querySelectorAll('.edit-btn').forEach(function (b) {
         b.addEventListener('click', function () { openEdit(Number(b.getAttribute('data-id'))); });
       });
