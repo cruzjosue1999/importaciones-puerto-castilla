@@ -234,9 +234,13 @@
     if (p.size_shirts) meta.push('👕 ' + escapeHtml(p.size_shirts));
     if (p.quantity && Number(p.quantity) !== 1) meta.push('× ' + escapeHtml(String(p.quantity)));
     var metaHtml = meta.length ? '<p class="card-meta">' + meta.join(' &nbsp;·&nbsp; ') + '</p>' : '';
-    return '<article class="card" data-id="' + p.id + '">' + photo +
-      '<div class="card-body">' +
-      '<h3 class="card-title">' + escapeHtml(p.description) + '</h3>' + metaHtml +
+    return '<article class="card" data-id="' + p.id + '">' +
+      '<button type="button" class="card-toggle">' +
+      '<span class="card-toggle-title">' + escapeHtml(p.description) + '</span>' +
+      '<span class="chev">▼</span>' +
+      '</button>' +
+      '<div class="card-detail hidden">' + photo +
+      '<div class="card-body">' + metaHtml +
       '<div class="nums">' +
       numRow('Precio compra $', fmtD(p.purchase_usd)) +
       numRow('Pagado en LPS', fmtL(p.cost_lps)) +
@@ -246,7 +250,7 @@
       '<div class="card-actions">' +
       '<button class="btn edit-btn" data-id="' + p.id + '">✏️ Editar</button>' +
       '<button class="btn danger del-btn" data-id="' + p.id + '">🗑️ Eliminar</button>' +
-      '</div></div></article>';
+      '</div></div></div></article>';
   }
   function numRow(label, value, isTotal) {
     return '<div class="num-row' + (isTotal ? ' total' : '') + '">' +
@@ -261,6 +265,14 @@
       var list = await api(url);
       $('no-products').classList.toggle('hidden', list.length > 0);
       box.innerHTML = list.map(productCard).join('');
+      box.querySelectorAll('.card-toggle').forEach(function (t) {
+        t.addEventListener('click', function () {
+          var d = t.parentNode.querySelector('.card-detail');
+          var chev = t.querySelector('.chev');
+          var collapsed = d.classList.toggle('hidden');
+          chev.textContent = collapsed ? '▼' : '▲';
+        });
+      });
       box.querySelectorAll('.edit-btn').forEach(function (b) {
         b.addEventListener('click', function () { openEdit(Number(b.getAttribute('data-id'))); });
       });
