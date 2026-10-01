@@ -933,7 +933,7 @@ def api_summary():
     )
 
 
-SHEET_COLUMNS = ["Describcion", "Talla zapato", "Talla camisa", "Cant.",
+SHEET_COLUMNS = ["Describcion",
                  "Total pagado $$", "Pagado en LPS", "Ingresos",
                  "Ganancia libre"]
 
@@ -956,16 +956,13 @@ def _sheet_data(db, caja_id=None):
         rows.append(
             [
                 p["description"],
-                p["size_shoes"] or "",
-                p["size_shirts"] or "",
-                q,
                 -float(p["purchase_usd"] or 0) * q,
                 -float(p["cost_lps"] or 0) * q,
                 float(p["sale_lps"] or 0) * q,
                 _ganancia_libre(p["cost_lps"], p["sale_lps"]) * q,
             ]
         )
-    pad = ["", "", ""]
+    pad = []
     summary_rows = [
         ["Total :"] + pad + [-t["total_usd"], -t["total_costo_lps"], t["total_venta_lps"],
          t["total_venta_lps"] - t["total_costo_lps"]],

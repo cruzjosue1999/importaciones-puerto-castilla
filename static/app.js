@@ -636,11 +636,11 @@
         return '<th>' + escapeHtml(c) + '</th>';
       }).join('') + '</tr>';
       var html = s.rows.map(function (r) {
-        return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 3); }).join('') + '</tr>';
+        return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
       }).join('');
       html += s.summary_rows.map(function (r, idx) {
         var cls = idx === s.summary_rows.length - 1 ? 'grand' : 'summary';
-        return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 3); }).join('') + '</tr>';
+        return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 1); }).join('') + '</tr>';
       }).join('');
       $('sheet-body').innerHTML = html;
     } catch (e) { notice('No se pudo cargar la hoja: ' + e.message, true); }
