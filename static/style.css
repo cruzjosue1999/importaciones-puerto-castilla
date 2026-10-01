@@ -187,6 +187,14 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .sheet-caja-title { margin: 14px 0 8px; font-size: 1rem; }
 .sheet-caja-title:first-child { margin-top: 0; }
 
+/* ---- Hojas colapsables (vista "Todas las cajas") ---- */
+.sheet-card { border: 1px solid var(--border); border-radius: 12px; margin-bottom: 10px; overflow: hidden; background: #fff; }
+.sheet-card-head { width: 100%; display: flex; align-items: center; gap: 8px; padding: 12px 14px; background: #f7f9fc; border: 0; font-size: 1rem; text-align: left; cursor: pointer; color: var(--text); }
+.sheet-card-name { font-weight: 700; flex: 1; }
+.sheet-card-meta { font-size: .8rem; color: var(--muted); }
+.sheet-card-head .chev { color: var(--muted); font-size: .85rem; }
+.sheet-card-body { border-top: 1px solid var(--border); }
+
 /* ---- Impresión de la hoja ---- */
 @media print {
   .topbar, .tabbar, .sheet-actions, .notice, #tab-productos, #tab-agregar,
@@ -200,8 +208,11 @@ table.sheet tr.grand td { background: #e0e7ff; }
   }
   .sheet-wrap { box-shadow: none; border-radius: 0; overflow: visible; }
   table.sheet { font-size: 11px; min-width: 0; }
-  .sheet-caja-title { break-before: page; margin-top: 0; }
-  .sheet-caja-title:first-child { break-before: auto; }
+  .sheet-card { break-before: page; border: 0; }
+  .sheet-card:first-child { break-before: auto; }
+  .sheet-card-body { display: block !important; border-top: 0; }
+  .sheet-card-head { padding: 0 0 6px; background: #fff; }
+  .sheet-card-head .chev, .sheet-card-meta { display: none; }
 }
 
 /* Crear inversión desde Productos */

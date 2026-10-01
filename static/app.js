@@ -711,11 +711,33 @@
       var url = '/api/sheet?caja_id=' + encodeURIComponent(cv || 'all');
       var s = await api(url);
       if (s.sheets) {
-        // "Todas las cajas": una hoja por caja, cada una con la suya.
+        // "Todas las cajas": una hoja por caja, colapsada; se expande al tocarla.
         $('sheet-wrap').innerHTML = s.sheets.map(function (sh) {
-          return '<h3 class="sheet-caja-title">📦 ' + escapeHtml(sh.caja_name) + '</h3>' +
-            sheetTableHtml(sh);
+          var gan = '';
+          for (var i = 0; i < sh.summary_rows.length; i++) {
+            if (sh.summary_rows[i][0] === 'Total + envío' && sh.summary_rows[i][4] !== '') {
+              gan = ' · ganancia ' + Number(sh.summary_rows[i][4]).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+              break;
+            }
+          }
+          return '<div class="sheet-card">' +
+            '<button type="button" class="sheet-card-head">' +
+            '<span class="sheet-card-name">📦 ' + escapeHtml(sh.caja_name) + '</span>' +
+            '<span class="sheet-card-meta">' + sh.rows.length + ' productos' + gan + '</span>' +
+            '<span class="chev">▼</span>' +
+            '</button>' +
+            '<div class="sheet-card-body hidden">' + sheetTableHtml(sh) + '</div>' +
+            '</div>';
         }).join('');
+        var heads = $('sheet-wrap').querySelectorAll('.sheet-card-head');
+        for (var k = 0; k < heads.length; k++) {
+          heads[k].addEventListener('click', function () {
+            var body = this.parentNode.querySelector('.sheet-card-body');
+            var chev = this.querySelector('.chev');
+            var collapsed = body.classList.toggle('hidden');
+            chev.textContent = collapsed ? '▼' : '▲';
+          });
+        }
       } else {
         $('sheet-wrap').innerHTML = '<table id="sheet-table" class="sheet">' +
           '<thead id="sheet-head"><tr>' + s.columns.map(function (c) {
