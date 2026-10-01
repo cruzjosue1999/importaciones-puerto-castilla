@@ -33,7 +33,30 @@
     noticeTimer = setTimeout(function () { n.classList.add('hidden'); }, 2600);
   }
 
-  /* ---------- confirmación propia (el confirm() del navegador no funciona en la app de iOS) ---------- */ function askConfirm(msg, yesLabel) { return new Promise(function (resolve) { var m = $('confirm-modal'); $('confirm-msg').textContent = msg; $('confirm-yes').textContent = yesLabel || 'Sí, eliminar'; m.classList.remove('hidden'); function done(val) { m.classList.add('hidden'); $('confirm-yes').removeEventListener('click', onYes); $('confirm-no').removeEventListener('click', onNo); m.removeEventListener('click', onBg); resolve(val); } function onYes() { done(true); } function onNo() { done(false); } function onBg(e) { if (e.target === m) done(false); } $('confirm-yes').addEventListener('click', onYes); $('confirm-no').addEventListener('click', onNo); m.addEventListener('click', onBg); }); } /* ---------- navegación por pestañas ---------- */
+  /* ---------- confirmación propia (el confirm() del navegador no funciona en la app de iOS) ---------- */
+  function askConfirm(msg, yesLabel) {
+    return new Promise(function (resolve) {
+      var m = $('confirm-modal');
+      $('confirm-msg').textContent = msg;
+      $('confirm-yes').textContent = yesLabel || 'Sí, eliminar';
+      m.classList.remove('hidden');
+      function done(val) {
+        m.classList.add('hidden');
+        $('confirm-yes').removeEventListener('click', onYes);
+        $('confirm-no').removeEventListener('click', onNo);
+        m.removeEventListener('click', onBg);
+        resolve(val);
+      }
+      function onYes() { done(true); }
+      function onNo() { done(false); }
+      function onBg(e) { if (e.target === m) done(false); }
+      $('confirm-yes').addEventListener('click', onYes);
+      $('confirm-no').addEventListener('click', onNo);
+      m.addEventListener('click', onBg);
+    });
+  }
+
+  /* ---------- navegación por pestañas ---------- */
   var tabLoaders = { graficas: loadSummary, hoja: loadSheet, productos: loadProducts, gastos: loadExpenses };
   document.querySelectorAll('.tabbtn').forEach(function (btn) {
     btn.addEventListener('click', function () {
@@ -47,14 +70,126 @@
     });
   });
 
+  /* ---------- Cajas (grupos por enviada) ---------- */
+  var cajasCache = [];
+  var productFilter = 'all'; // 'all' | 'none' | <id>
+
+  function cajaOptionsHTML(selected, includeGeneral) {
+    var sel = selected == null ? '' : String(selected);
+    var h = includeGeneral ? '<option value="">General (todas)</option>' : '';
+    h += cajasCache.map(function (c) {
+      return '<option value="' + c.id + '"' + (String(c.id) === sel ? ' selected' : '') + '>' +
+        escapeHtml(c.name) + ' (' + c.n_products + ')</option>';
+    }).join('');
+    return h;
+  }
+
+  function refreshCajaSelects(keepValues) {
+    var keep = {};
+    if (keepValues) ['add-caja', 'edit-caja', 'exp-caja', 'expense-caja', 'sheet-caja', 'charts-caja'].forEach(function (id) {
+      var el = $(id); if (el) keep[id] = el.value;
+    });
+    var sc = $('sheet-caja'), cc = $('charts-caja');
+    if (sc) sc.innerHTML = '<option value="all">Todas las cajas</option>' + cajasCache.map(function (c) {
+      return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
+    }).join('');
+    if (cc) cc.innerHTML = sc ? sc.innerHTML : '';
+    var ac = $('add-caja'); if (ac) ac.innerHTML = '<option value="">Sin caja</option>' + cajaOptionsHTML('');
+    var ec = $('edit-caja'); if (ec) ec.innerHTML = '<option value="">Sin caja</option>' + cajaOptionsHTML('');
+    var xc = $('exp-caja'); if (xc) xc.innerHTML = cajaOptionsHTML('', true);
+    var mc = $('expense-caja'); if (mc) mc.innerHTML = cajaOptionsHTML('', true);
+    if (keepValues) Object.keys(keep).forEach(function (id) {
+      var el = $(id);
+      if (el && el.querySelector('option[value="' + keep[id] + '"]')) el.value = keep[id];
+    });
+  }
+
+  function renderChips() {
+    var box = $('caja-chips');
+    var h = '<button class="chip' + (productFilter === 'all' ? ' active' : '') + '" data-f="all">Todas</button>';
+    h += cajasCache.map(function (c) {
+      return '<button class="chip' + (String(productFilter) === String(c.id) ? ' active' : '') +
+        '" data-f="' + c.id + '">📦 ' + escapeHtml(c.name) + '</button>';
+    }).join('');
+    h += '<button class="chip' + (productFilter === 'none' ? ' active' : '') + '" data-f="none">Sin caja</button>';
+    box.innerHTML = h;
+    box.querySelectorAll('.chip').forEach(function (b) {
+      b.addEventListener('click', function () {
+        productFilter = b.getAttribute('data-f');
+        renderChips();
+        loadProducts();
+      });
+    });
+  }
+
+  async function loadCajas() {
+    try {
+      cajasCache = await api('/api/cajas');
+      renderChips();
+      refreshCajaSelects(true);
+      renderCajaList();
+    } catch (e) { /* sin cajas no se bloquea nada */ }
+  }
+
+  function renderCajaList() {
+    var box = $('caja-list');
+    if (!box) return;
+    box.innerHTML = cajasCache.map(function (c) {
+      return '<div class="caja-item"><span class="caja-name">' + escapeHtml(c.name) + '</span>' +
+        '<span class="caja-count">' + c.n_products + ' prod.</span>' +
+        '<button class="btn caja-edit" data-id="' + c.id + '">✏️</button>' +
+        '<button class="btn danger caja-del" data-id="' + c.id + '">🗑️</button></div>';
+    }).join('') || '<p class="hint">Aún no hay cajas.</p>';
+    box.querySelectorAll('.caja-edit').forEach(function (b) {
+      b.addEventListener('click', function () { startEditCaja(Number(b.getAttribute('data-id'))); });
+    });
+    box.querySelectorAll('.caja-del').forEach(function (b) {
+      b.addEventListener('click', function () { delCaja(Number(b.getAttribute('data-id'))); });
+    });
+  }
+
+  function resetCajaForm() {
+    $('caja-edit-id').value = '';
+    $('caja-name').value = '';
+    $('caja-error').classList.add('hidden');
+    $('caja-save').textContent = 'Guardar caja';
+    $('caja-cancel').classList.add('hidden');
+  }
+
+  function startEditCaja(id) {
+    var c = cajasCache.find(function (x) { return x.id === id; });
+    if (!c) return;
+    $('caja-edit-id').value = c.id;
+    $('caja-name').value = c.name;
+    $('caja-save').textContent = 'Guardar cambios';
+    $('caja-cancel').classList.remove('hidden');
+    $('caja-name').focus();
+  }
+
+  async function delCaja(id) {
+    if (!(await askConfirm('¿Eliminar esta caja? Solo se puede si no tiene productos.'))) return;
+    try {
+      await api('/api/cajas/' + id, { method: 'DELETE' });
+      notice('Caja eliminada.');
+      await loadCajas();
+      loadProducts();
+    } catch (e) { notice(e.message, true); }
+  }
+
   /* ---------- Productos ---------- */
   function productCard(p) {
     var photo = p.photo_url
       ? '<img class="card-photo" src="' + escapeHtml(p.photo_url) + '" alt="Foto de ' + escapeHtml(p.description) + '" loading="lazy">'
       : '<div class="card-photo placeholder">📦</div>';
+    var meta = [];
+    if (p.caja_name) meta.push('📦 ' + escapeHtml(p.caja_name));
+    if (p.size_shoes) meta.push('👟 ' + escapeHtml(p.size_shoes));
+    if (p.size_shirts) meta.push('👕 ' + escapeHtml(p.size_shirts));
+    if (p.quantity && Number(p.quantity) !== 1) meta.push('× ' + escapeHtml(String(p.quantity)));
+    var metaHtml = meta.length ? '<p class="card-meta">' + meta.join(' &nbsp;·&nbsp; ') + '</p>' : '';
     return '<article class="card" data-id="' + p.id + '">' + photo +
       '<div class="card-body">' +
-      '<h3 class="card-title">' + escapeHtml(p.description) + '</h3>' +
+      '<h3 class="card-title">' + escapeHtml(p.description) + '</h3>' + metaHtml +
       '<div class="nums">' +
       numRow('Precio compra $', fmtD(p.purchase_usd)) +
       numRow('Pagado en LPS', fmtL(p.cost_lps)) +
@@ -74,7 +209,9 @@
   async function loadProducts() {
     var box = $('product-list');
     try {
-      var list = await api('/api/products');
+      var url = '/api/products';
+      if (productFilter !== 'all') url += '?caja_id=' + encodeURIComponent(productFilter);
+      var list = await api(url);
       $('no-products').classList.toggle('hidden', list.length > 0);
       box.innerHTML = list.map(productCard).join('');
       box.querySelectorAll('.edit-btn').forEach(function (b) {
@@ -131,6 +268,10 @@
     err.classList.add('hidden');
     var body = {
       description: $('add-desc').value.trim(),
+      caja_id: $('add-caja').value || undefined,
+      size_shoes: $('add-size-shoes').value.trim(),
+      size_shirts: $('add-size-shirts').value.trim(),
+      quantity: $('add-quantity').value,
       purchase_usd: $('add-usd').value,
       cost_lps: $('add-cost').value,
       sale_lps: $('add-sale').value,
@@ -155,6 +296,10 @@
     } catch (e) { notice(e.message, true); return; }
     $('edit-id').value = p.id;
     $('edit-desc').value = p.description;
+    $('edit-caja').value = p.caja_id || '';
+    $('edit-size-shoes').value = p.size_shoes || '';
+    $('edit-size-shirts').value = p.size_shirts || '';
+    $('edit-quantity').value = p.quantity || 1;
     $('edit-usd').value = p.purchase_usd;
     $('edit-cost').value = p.cost_lps;
     $('edit-sale').value = p.sale_lps;
@@ -178,6 +323,10 @@
     var id = $('edit-id').value;
     var body = {
       description: $('edit-desc').value.trim(),
+      caja_id: $('edit-caja').value || undefined,
+      size_shoes: $('edit-size-shoes').value.trim(),
+      size_shirts: $('edit-size-shirts').value.trim(),
+      quantity: $('edit-quantity').value,
       purchase_usd: $('edit-usd').value,
       cost_lps: $('edit-cost').value,
       sale_lps: $('edit-sale').value,
@@ -198,14 +347,41 @@
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
 
-  /* ---------- Gastos ---------- */ async function editExpense(id) { var list = await api('/api/expenses'); var e = list.find(function (x) { return x.id === id; }); if (!e) return; $('expense-id').value = e.id; $('expense-name').value = e.name; $('expense-usd').value = e.amount_usd; $('expense-lps').value = e.amount_lps; $('expense-error').classList.add('hidden'); $('expense-modal').classList.remove('hidden'); } $('expense-cancel').addEventListener('click', function () { $('expense-modal').classList.add('hidden'); }); $('expense-modal').addEventListener('click', function (e) { if (e.target === $('expense-modal')) $('expense-modal').classList.add('hidden'); }); $('expense-form').addEventListener('submit', async function (e) { e.preventDefault(); var id = $('expense-id').value; var err = $('expense-error'); err.classList.add('hidden'); var name = $('expense-name').value.trim(); if (!name) { err.textContent = 'El nombre del gasto es obligatorio.'; err.classList.remove('hidden'); return; } try { await api('/api/expenses/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, amount_usd: $('expense-usd').value, amount_lps: $('expense-lps').value }) }); $('expense-modal').classList.add('hidden'); notice('✅ Gasto actualizado.'); loadExpenses(); } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); } }); async function delExpense(id) { if (!(await askConfirm('¿Eliminar este gasto?'))) return; try { await api('/api/expenses/' + id, { method: 'DELETE' }); notice('Gasto eliminado.'); loadExpenses(); } catch (e) { notice(e.message, true); } }
+  /* ---------- Gastos ---------- */
+  $('caja-save').addEventListener('click', async function () {
+    var err = $('caja-error');
+    err.classList.add('hidden');
+    var name = $('caja-name').value.trim();
+    var editId = $('caja-edit-id').value;
+    if (!name) { err.textContent = 'El nombre de la caja es obligatorio.'; err.classList.remove('hidden'); return; }
+    try {
+      if (editId) {
+        await api('/api/cajas/' + editId, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name })
+        });
+        notice('✅ Caja actualizada.');
+      } else {
+        await api('/api/cajas', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name })
+        });
+        notice('✅ Caja creada.');
+      }
+      resetCajaForm();
+      await loadCajas();
+    } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
+  });
+  $('caja-cancel').addEventListener('click', resetCajaForm);
+
   async function loadExpenses() {
     var box = $('expense-list');
     try {
       var list = await api('/api/expenses');
       box.innerHTML = list.map(function (e) {
+        var meta = e.caja_name ? '<p class="card-meta">📦 ' + escapeHtml(e.caja_name) + '</p>' : '';
         return '<article class="card"><div class="card-body">' +
-          '<h3 class="card-title">' + escapeHtml(e.name) + '</h3>' +
+          '<h3 class="card-title">' + escapeHtml(e.name) + '</h3>' + meta +
           '<div class="nums">' +
           numRow('Monto en $', fmtD(e.amount_usd)) +
           numRow('Monto en LPS', fmtL(e.amount_lps)) +
@@ -224,30 +400,41 @@
     } catch (e) { notice('No se pudieron cargar los gastos: ' + e.message, true); }
   }
 
-  async function editExpense_OLD(id) {
+  async function editExpense(id) {
     var list = await api('/api/expenses');
     var e = list.find(function (x) { return x.id === id; });
     if (!e) return;
-    var name = prompt('Nombre del gasto:', e.name);
-    if (name === null) return;
-    name = name.trim();
-    if (!name) { notice('El nombre es obligatorio.', true); return; }
-    var usd = prompt('Monto en $:', e.amount_usd);
-    if (usd === null) return;
-    var lps = prompt('Monto en LPS:', e.amount_lps);
-    if (lps === null) return;
+    $('expense-id').value = e.id;
+    $('expense-name').value = e.name;
+    $('expense-caja').value = e.caja_id || '';
+    $('expense-usd').value = e.amount_usd;
+    $('expense-lps').value = e.amount_lps;
+    $('expense-error').classList.add('hidden');
+    $('expense-modal').classList.remove('hidden');
+  }
+
+  $('expense-cancel').addEventListener('click', function () { $('expense-modal').classList.add('hidden'); });
+  $('expense-modal').addEventListener('click', function (e) { if (e.target === $('expense-modal')) $('expense-modal').classList.add('hidden'); });
+  $('expense-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var id = $('expense-id').value;
+    var err = $('expense-error');
+    err.classList.add('hidden');
+    var name = $('expense-name').value.trim();
+    if (!name) { err.textContent = 'El nombre del gasto es obligatorio.'; err.classList.remove('hidden'); return; }
     try {
       await api('/api/expenses/' + id, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name, amount_usd: usd, amount_lps: lps })
+        body: JSON.stringify({ name: name, caja_id: $('expense-caja').value || undefined, amount_usd: $('expense-usd').value, amount_lps: $('expense-lps').value })
       });
+      $('expense-modal').classList.add('hidden');
       notice('✅ Gasto actualizado.');
       loadExpenses();
-    } catch (err) { notice(err.message, true); }
-  }
+    } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
+  });
 
-  async function delExpense_OLD(id) {
-    if (!confirm('¿Eliminar este gasto?')) return;
+  async function delExpense(id) {
+    if (!(await askConfirm('¿Eliminar este gasto?'))) return;
     try {
       await api('/api/expenses/' + id, { method: 'DELETE' });
       notice('Gasto eliminado.');
@@ -261,6 +448,7 @@
     err.classList.add('hidden');
     var body = {
       name: $('exp-name').value.trim(),
+      caja_id: $('exp-caja').value || undefined,
       amount_usd: $('exp-usd').value,
       amount_lps: $('exp-lps').value
     };
@@ -354,7 +542,10 @@
   async function loadSummary() {
     var box = $('summary-cards');
     try {
-      var s = await api('/api/summary');
+      var url = '/api/summary';
+      var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+      if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
+      var s = await api(url);
       box.innerHTML =
         profitCard('💰', 'Inversión total', fmtL(s.inversion_total_lps)) +
         profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps)) +
@@ -379,24 +570,35 @@
 
   async function loadSheet() {
     try {
-      var s = await api('/api/sheet');
+      var url = '/api/sheet';
+      var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
+      if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
+      var s = await api(url);
       $('sheet-head').innerHTML = '<tr>' + s.columns.map(function (c) {
         return '<th>' + escapeHtml(c) + '</th>';
       }).join('') + '</tr>';
       var html = s.rows.map(function (r) {
-        return '<tr>' + r.map(function (v, i) { return fmtCell(v, i > 0); }).join('') + '</tr>';
+        return '<tr>' + r.map(function (v, i) { return fmtCell(v, i >= 3); }).join('') + '</tr>';
       }).join('');
       html += s.summary_rows.map(function (r, idx) {
         var cls = idx === s.summary_rows.length - 1 ? 'grand' : 'summary';
-        return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i > 0); }).join('') + '</tr>';
+        return '<tr class="' + cls + '">' + r.map(function (v, i) { return fmtCell(v, i >= 3); }).join('') + '</tr>';
       }).join('');
       $('sheet-body').innerHTML = html;
     } catch (e) { notice('No se pudo cargar la hoja: ' + e.message, true); }
   }
 
   $('btn-print').addEventListener('click', function () { window.print(); });
-  $('btn-csv').addEventListener('click', function () { window.location.href = '/api/sheet.csv'; });
+  $('btn-csv').addEventListener('click', function () {
+    var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
+    var url = '/api/sheet.csv';
+    if (cv && cv !== 'all') url += '?caja_id=' + encodeURIComponent(cv);
+    window.location.href = url;
+  });
+  $('sheet-caja').addEventListener('change', loadSheet);
+  $('charts-caja').addEventListener('change', loadSummary);
 
   /* ---------- inicio ---------- */
+  loadCajas();
   loadProducts();
 })();
