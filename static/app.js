@@ -119,23 +119,33 @@
     });
   }
 
-  /* Una sola inversión seleccionada manda en toda la app: los chips de
-     Productos y de Gastos comparten la selección; productos, gastos,
-     formularios, hoja y gráficas la siguen. */
+  /* Una sola inversión seleccionada manda en toda la app: las cajas con
+     icono de Productos y de Gastos comparten la selección; al tocar una
+     caja se muestran sus productos, fotos, gastos, gráficas y hoja. */
   function renderChips() {
-    var h = '<button class="chip' + (productFilter === 'all' ? ' active' : '') + '" data-f="all">Todas</button>';
-    h += cajasCache.map(function (c) {
-      return '<button class="chip' + (String(productFilter) === String(c.id) ? ' active' : '') +
-        '" data-f="' + c.id + '">📁 ' + escapeHtml(c.name) + '</button>';
+    var boxes = [{ f: 'all', icon: '🗂️', name: 'Todas', sub: '' }];
+    cajasCache.forEach(function (c) {
+      boxes.push({
+        f: String(c.id), icon: '📦', name: c.name,
+        sub: c.n_products + ' prod.'
+      });
+    });
+    boxes.push({ f: 'none', icon: '🏷️', name: 'Sin inversión', sub: '' });
+    var h = boxes.map(function (b) {
+      return '<button class="caja-box' + (String(productFilter) === b.f ? ' active' : '') +
+        '" data-f="' + b.f + '">' +
+        '<span class="caja-box-icon" aria-hidden="true">' + b.icon + '</span>' +
+        '<span class="caja-box-name">' + escapeHtml(b.name) + '</span>' +
+        (b.sub ? '<span class="caja-box-sub">' + escapeHtml(b.sub) + '</span>' : '') +
+        '</button>';
     }).join('');
-    h += '<button class="chip' + (productFilter === 'none' ? ' active' : '') + '" data-f="none">Sin inversión</button>';
     ['caja-chips', 'expense-chips'].forEach(function (boxId) {
       var box = $(boxId);
       if (!box) return;
       box.innerHTML = h;
-      box.querySelectorAll('.chip').forEach(function (b) {
-        b.addEventListener('click', function () {
-          productFilter = b.getAttribute('data-f');
+      box.querySelectorAll('.caja-box').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          productFilter = btn.getAttribute('data-f');
           renderChips();
           followInvestment(productFilter);
           loadProducts();
