@@ -65,7 +65,13 @@
       btn.classList.add('active');
       var tab = btn.getAttribute('data-tab');
       $('tab-' + tab).classList.add('active');
-      if (tabLoaders[tab]) tabLoaders[tab]();
+      // Las inversiones se crean desde varias pestañas: recargarlas al cambiar
+      // de pestaña para que el cuadro "Inversiones", los iconos de caja y los
+      // formularios nunca muestren datos viejos.
+      loadCajas().then(function () {
+        followInvestment(productFilter);
+        if (tabLoaders[tab]) tabLoaders[tab]();
+      });
       window.scrollTo(0, 0);
     });
   });
