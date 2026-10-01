@@ -83,6 +83,35 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
   width: 100%; padding: 12px; font-size: 1rem; border: 1px solid var(--border);
   border-radius: 10px; background: #fff;
 }
+.field select {
+  width: 100%; padding: 12px; font-size: 1rem; border: 1px solid var(--border);
+  border-radius: 10px; background: #fff; color: inherit;
+}
+.field-row { display: flex; gap: 10px; }
+.field-row .field { flex: 1; min-width: 0; }
+
+/* Filtros por caja */
+.chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; -webkit-overflow-scrolling: touch; }
+.chip {
+  flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border);
+  background: #fff; font-size: .9rem; font-weight: 600; color: var(--navy); cursor: pointer;
+}
+.chip.active { background: var(--navy); border-color: var(--navy); color: #fff; }
+.sheet-filter { max-width: 320px; margin-bottom: 12px; }
+.sheet-filter label { font-size: .85rem; }
+
+/* Lista de cajas */
+.caja-form { margin-bottom: 18px; }
+.caja-form h3 { margin: 0 0 4px; }
+.caja-list { display: flex; flex-direction: column; gap: 8px; margin: 10px 0 14px; }
+.caja-item {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 10px; background: #fff;
+}
+.caja-item .caja-name { flex: 1; font-weight: 600; }
+.caja-item .caja-count { color: var(--muted); font-size: .85rem; }
+.caja-item .btn { padding: 6px 10px; font-size: .85rem; }
+.card-meta { color: var(--muted); font-size: .88rem; margin: 2px 0 6px; }
 .check { display: flex; align-items: center; gap: 8px; font-weight: 400; font-size: .9rem; }
 .photo-preview {
   width: 100%; aspect-ratio: 4 / 3; border: 2px dashed var(--border); border-radius: 12px;
