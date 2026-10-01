@@ -257,6 +257,24 @@ def _clean_cajas(client):
         client.delete(f"/api/cajas/{c['id']}")
 
 
+def test_sin_caja_semilla(client):
+    # Ya no se crea ninguna "Segunda caja" automáticamente: el usuario
+    # crea sus propias inversiones con el nombre que quiera.
+    assert client.get("/api/cajas").get_json() == []
+
+
+def test_limpieza_segunda_caja(client):
+    # Si la vieja "Segunda caja" sigue en la base sin productos ni gastos,
+    # init_db la elimina sola.
+    import sqlite3
+    db = sqlite3.connect(os.environ["INVENTARIO_DB_PATH"])
+    db.execute("INSERT INTO cajas(name, created_at) VALUES('Segunda caja', 1)")
+    db.commit()
+    db.close()
+    init_db()
+    assert client.get("/api/cajas").get_json() == []
+
+
 def test_cajas_crud(client):
     _clean_cajas(client)
     r = client.post("/api/cajas", json={"name": "Tercera caja"})

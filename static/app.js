@@ -76,7 +76,7 @@
 
   function cajaOptionsHTML(selected, includeGeneral) {
     var sel = selected == null ? '' : String(selected);
-    var h = includeGeneral ? '<option value="">General (todas)</option>' : '';
+    var h = includeGeneral ? '<option value="">General</option>' : '';
     h += cajasCache.map(function (c) {
       return '<option value="' + c.id + '"' + (String(c.id) === sel ? ' selected' : '') + '>' +
         escapeHtml(c.name) + ' (' + c.n_products + ')</option>';
@@ -94,8 +94,8 @@
       return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
     }).join('');
     if (cc) cc.innerHTML = sc ? sc.innerHTML : '';
-    var ac = $('add-caja'); if (ac) ac.innerHTML = '<option value="">Sin caja</option>' + cajaOptionsHTML('');
-    var ec = $('edit-caja'); if (ec) ec.innerHTML = '<option value="">Sin caja</option>' + cajaOptionsHTML('');
+    var ac = $('add-caja'); if (ac) ac.innerHTML = '<option value="">Sin inversión</option>' + cajaOptionsHTML('');
+    var ec = $('edit-caja'); if (ec) ec.innerHTML = '<option value="">Sin inversión</option>' + cajaOptionsHTML('');
     var xc = $('exp-caja'); if (xc) xc.innerHTML = cajaOptionsHTML('', true);
     var mc = $('expense-caja'); if (mc) mc.innerHTML = cajaOptionsHTML('', true);
     if (keepValues) Object.keys(keep).forEach(function (id) {
@@ -109,9 +109,9 @@
     var h = '<button class="chip' + (productFilter === 'all' ? ' active' : '') + '" data-f="all">Todas</button>';
     h += cajasCache.map(function (c) {
       return '<button class="chip' + (String(productFilter) === String(c.id) ? ' active' : '') +
-        '" data-f="' + c.id + '">📦 ' + escapeHtml(c.name) + '</button>';
+        '" data-f="' + c.id + '">📁 ' + escapeHtml(c.name) + '</button>';
     }).join('');
-    h += '<button class="chip' + (productFilter === 'none' ? ' active' : '') + '" data-f="none">Sin caja</button>';
+    h += '<button class="chip' + (productFilter === 'none' ? ' active' : '') + '" data-f="none">Sin inversión</button>';
     box.innerHTML = h;
     box.querySelectorAll('.chip').forEach(function (b) {
       b.addEventListener('click', function () {
@@ -120,6 +120,11 @@
         loadProducts();
       });
     });
+    var ac = $('add-caja');
+    if (ac && productFilter !== 'all' && productFilter !== 'none') {
+      var opt = ac.querySelector('option[value="' + productFilter + '"]');
+      if (opt) ac.value = productFilter;
+    }
   }
 
   async function loadCajas() {
@@ -139,7 +144,7 @@
         '<span class="caja-count">' + c.n_products + ' prod.</span>' +
         '<button class="btn caja-edit" data-id="' + c.id + '">✏️</button>' +
         '<button class="btn danger caja-del" data-id="' + c.id + '">🗑️</button></div>';
-    }).join('') || '<p class="hint">Aún no hay cajas.</p>';
+    }).join('') || '<p class="hint">Aún no hay inversiones. Toca &laquo;＋ Crear inversión&raquo; para empezar.</p>';
     box.querySelectorAll('.caja-edit').forEach(function (b) {
       b.addEventListener('click', function () { startEditCaja(Number(b.getAttribute('data-id'))); });
     });
@@ -152,7 +157,7 @@
     $('caja-edit-id').value = '';
     $('caja-name').value = '';
     $('caja-error').classList.add('hidden');
-    $('caja-save').textContent = 'Guardar caja';
+    $('caja-save').textContent = 'Guardar inversión';
     $('caja-cancel').classList.add('hidden');
   }
 
@@ -167,10 +172,11 @@
   }
 
   async function delCaja(id) {
-    if (!(await askConfirm('¿Eliminar esta caja? Solo se puede si no tiene productos.'))) return;
+    if (!(await askConfirm('¿Eliminar esta inversión? Solo se puede si no tiene productos.'))) return;
     try {
       await api('/api/cajas/' + id, { method: 'DELETE' });
-      notice('Caja eliminada.');
+      notice('Inversión eliminada.');
+      if (String(productFilter) === String(id)) productFilter = 'all';
       await loadCajas();
       loadProducts();
     } catch (e) { notice(e.message, true); }
@@ -182,7 +188,7 @@
       ? '<img class="card-photo" src="' + escapeHtml(p.photo_url) + '" alt="Foto de ' + escapeHtml(p.description) + '" loading="lazy">'
       : '<div class="card-photo placeholder">📦</div>';
     var meta = [];
-    if (p.caja_name) meta.push('📦 ' + escapeHtml(p.caja_name));
+    if (p.caja_name) meta.push('📁 ' + escapeHtml(p.caja_name));
     if (p.size_shoes) meta.push('👟 ' + escapeHtml(p.size_shoes));
     if (p.size_shirts) meta.push('👕 ' + escapeHtml(p.size_shirts));
     if (p.quantity && Number(p.quantity) !== 1) meta.push('× ' + escapeHtml(String(p.quantity)));
@@ -353,20 +359,20 @@
     err.classList.add('hidden');
     var name = $('caja-name').value.trim();
     var editId = $('caja-edit-id').value;
-    if (!name) { err.textContent = 'El nombre de la caja es obligatorio.'; err.classList.remove('hidden'); return; }
+    if (!name) { err.textContent = 'El nombre de la inversión es obligatorio.'; err.classList.remove('hidden'); return; }
     try {
       if (editId) {
         await api('/api/cajas/' + editId, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name })
         });
-        notice('✅ Caja actualizada.');
+        notice('✅ Inversión actualizada.');
       } else {
         await api('/api/cajas', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name })
         });
-        notice('✅ Caja creada.');
+        notice('✅ Inversión creada.');
       }
       resetCajaForm();
       await loadCajas();
@@ -374,12 +380,42 @@
   });
   $('caja-cancel').addEventListener('click', resetCajaForm);
 
+  /* Crear inversión rápido desde la pestaña Productos */
+  $('btn-new-inversion').addEventListener('click', function () {
+    var f = $('inv-create');
+    f.classList.toggle('hidden');
+    if (!f.classList.contains('hidden')) $('inv-name').focus();
+  });
+  $('inv-cancel').addEventListener('click', function () {
+    $('inv-create').classList.add('hidden');
+    $('inv-name').value = '';
+    $('inv-error').classList.add('hidden');
+  });
+  $('inv-save').addEventListener('click', async function () {
+    var err = $('inv-error');
+    err.classList.add('hidden');
+    var name = $('inv-name').value.trim();
+    if (!name) { err.textContent = 'Ponle un nombre a la inversión.'; err.classList.remove('hidden'); return; }
+    try {
+      var c = await api('/api/cajas', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: name })
+      });
+      $('inv-create').classList.add('hidden');
+      $('inv-name').value = '';
+      notice('✅ Inversión creada.');
+      productFilter = String(c.id);
+      await loadCajas();
+      loadProducts();
+    } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
+  });
+
   async function loadExpenses() {
     var box = $('expense-list');
     try {
       var list = await api('/api/expenses');
       box.innerHTML = list.map(function (e) {
-        var meta = e.caja_name ? '<p class="card-meta">📦 ' + escapeHtml(e.caja_name) + '</p>' : '';
+        var meta = e.caja_name ? '<p class="card-meta">📁 ' + escapeHtml(e.caja_name) + '</p>' : '';
         return '<article class="card"><div class="card-body">' +
           '<h3 class="card-title">' + escapeHtml(e.name) + '</h3>' + meta +
           '<div class="nums">' +

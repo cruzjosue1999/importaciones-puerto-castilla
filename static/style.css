@@ -198,3 +198,8 @@ table.sheet tr.grand td { background: #e0e7ff; }
   .sheet-wrap { box-shadow: none; border-radius: 0; overflow: visible; }
   table.sheet { font-size: 11px; min-width: 0; }
 }
+
+/* Crear inversión desde Productos */
+.btn-new-inv { width: 100%; margin-bottom: 10px; }
+#inv-create { margin-bottom: 12px; }
+#inv-create h3 { margin: 0 0 10px; font-size: 16px; }
