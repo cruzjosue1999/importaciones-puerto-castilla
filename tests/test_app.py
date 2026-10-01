@@ -130,6 +130,11 @@ def _clean_products(client):
         client.delete(f"/api/products/{p['id']}")
 
 
+def _clean_expenses(client):
+    for e in client.get("/api/expenses").get_json():
+        client.delete(f"/api/expenses/{e['id']}")
+
+
 def test_expenses_seeded(client):
     names = [e["name"] for e in client.get("/api/expenses").get_json()]
     assert "Tax" in names and "Envío" in names
@@ -185,12 +190,46 @@ def test_sheet_mirrors_spreadsheet(client):
     assert row[2] == pytest.approx(-534.2)    # pagado LPS, negativo
     assert row[3] == pytest.approx(700)       # ganancia (precio de venta)
     assert row[4] == pytest.approx(700 - 534.2)  # ganancia libre
-    # filas de resumen: Total, Tax, Envío, Total + envío
+    # filas de resumen: Total, Tax, Envío, Total + envío, Comisión tía Wendy, Christian (55%)
     labels = [r[0] for r in s["summary_rows"]]
     assert labels[0].startswith("Total")
-    assert labels[-1] == "Total + envío"
+    assert "Total + envío" in labels
     assert any("Tax" in l for l in labels)
     assert any("Envío" in l for l in labels)
+    assert labels[-2] == "Comisión tía Wendy (45%)"
+    assert labels[-1] == "Christian (55%)"
+    # la comisión se calcula sobre la ganancia libre DESPUÉS de todas las
+    # deducciones (la fila "Total + envío" ya resta compra, Tax, Envío, etc.)
+    libre = next(r for r in s["summary_rows"] if r[0] == "Total + envío")[4]
+    com_row = s["summary_rows"][-2]
+    neta_row = s["summary_rows"][-1]
+    assert com_row[4] == pytest.approx(-libre * 0.45)
+    assert neta_row[4] == pytest.approx(libre * 0.55)
+
+
+def test_commission_after_all_deductions(client):
+    """La comisión de tía Wendy es 45% de la ganancia libre con TODAS las
+    deducciones aplicadas, y se recalcula sola al agregar/quitar/editar."""
+    _clean_products(client)
+    _clean_expenses(client)
+    client.post("/api/expenses", json={"name": "Envío", "amount_lps": 100})
+    client.post("/api/products", json={"description": "P1", "cost_lps": 500,
+                                       "sale_lps": 1000})
+    s = client.get("/api/sheet").get_json()
+    libre = 1000 - 500 - 100  # venta - costo - gasto
+    assert s["summary_rows"][-2][4] == pytest.approx(-libre * 0.45)
+    assert s["summary_rows"][-1][4] == pytest.approx(libre * 0.55)
+    # al agregar otro producto, todo se recalcula dinámicamente
+    client.post("/api/products", json={"description": "P2", "cost_lps": 200,
+                                       "sale_lps": 600})
+    s = client.get("/api/sheet").get_json()
+    libre2 = libre + (600 - 200)
+    assert s["summary_rows"][-2][4] == pytest.approx(-libre2 * 0.45)
+    assert s["summary_rows"][-1][4] == pytest.approx(libre2 * 0.55)
+    _clean_products(client)
+    _clean_expenses(client)
+    for name in ("Tax", "Envío"):  # dejar las categorías base como estaban
+        client.post("/api/expenses", json={"name": name})
 
 
 def test_sheet_csv_download(client):
@@ -206,6 +245,8 @@ def test_sheet_csv_download(client):
     assert "Total pagado $$" in text
     assert "Multi for him" not in text  # este producto no se agregó aquí
     assert "Total + envío" in text
+    assert "Comisión tía Wendy (45%)" in text
+    assert "Christian (55%)" in text
 
 
 # ---------- persistencia ----------
