@@ -19,6 +19,19 @@
 <main id="main">
   <!-- Pestaña: Productos -->
   <section id="tab-productos" class="tab active" aria-label="Productos">
+    <button class="btn primary btn-new-inv" id="btn-new-inversion">＋ Crear inversión</button>
+    <div id="inv-create" class="form caja-form hidden">
+      <h3>📁 Nueva inversión</h3>
+      <div class="field">
+        <label for="inv-name">Nombre de la inversión *</label>
+        <input type="text" id="inv-name" maxlength="80" placeholder="Ej: Inversión de enero">
+      </div>
+      <p id="inv-error" class="error hidden"></p>
+      <div class="form-actions">
+        <button type="button" id="inv-save" class="btn primary">Crear</button>
+        <button type="button" id="inv-cancel" class="btn">Cancelar</button>
+      </div>
+    </div>
     <div id="caja-chips" class="chips"></div>
     <div id="product-list" class="cards"></div>
     <p id="no-products" class="hint hidden">Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.</p>
@@ -37,7 +50,7 @@
         <input type="file" id="add-photo" accept="image/*" class="hidden">
       </div>
       <div class="field">
-        <label for="add-caja">Caja (enviada)</label>
+        <label for="add-caja">Inversión</label>
         <select id="add-caja"></select>
       </div>
       <div class="field">
@@ -80,17 +93,17 @@
     <h2>Gastos</h2>
     <p class="hint">Tax, envío y otros costos que se restan de la ganancia.</p>
     <div class="form caja-form">
-      <h3>📦 Cajas (enviadas)</h3>
-      <p class="hint">Cada enviada es un grupo aparte: sus productos y sus gastos se guardan por separado.</p>
+      <h3>📁 Inversiones</h3>
+      <p class="hint">Cada inversión es una carpeta aparte: sus productos y sus gastos se guardan por separado, con sus propias gráficas y su propia hoja.</p>
       <div id="caja-list" class="caja-list"></div>
       <input type="hidden" id="caja-edit-id">
       <div class="field">
-        <label for="caja-name">Nombre de la caja</label>
-        <input type="text" id="caja-name" maxlength="80" placeholder="Ej: Tercera caja">
+        <label for="caja-name">Nombre de la inversión</label>
+        <input type="text" id="caja-name" maxlength="80" placeholder="Ej: Inversión de enero">
       </div>
       <p id="caja-error" class="error hidden"></p>
       <div class="modal-actions">
-        <button type="button" id="caja-save" class="btn primary">Guardar caja</button>
+        <button type="button" id="caja-save" class="btn primary">Guardar inversión</button>
         <button type="button" id="caja-cancel" class="btn hidden">Cancelar</button>
       </div>
     </div>
@@ -102,7 +115,7 @@
         <input type="text" id="exp-name" maxlength="80" placeholder="Ej: Flete" required>
       </div>
       <div class="field">
-        <label for="exp-caja">Caja</label>
+        <label for="exp-caja">Inversión</label>
         <select id="exp-caja"></select>
       </div>
       <div class="field">
@@ -122,7 +135,7 @@
   <section id="tab-graficas" class="tab" aria-label="Gráficas">
     <h2>Ganancias</h2>
     <div class="field sheet-filter">
-      <label for="charts-caja">Caja</label>
+      <label for="charts-caja">Inversión</label>
       <select id="charts-caja"></select>
     </div>
     <div id="summary-cards" class="cards-row"></div>
@@ -139,7 +152,7 @@
     <h2>Hoja de cálculo</h2>
     <div class="sheet-actions">
       <div class="field sheet-filter">
-        <label for="sheet-caja">Caja</label>
+        <label for="sheet-caja">Inversión</label>
         <select id="sheet-caja"></select>
       </div>
       <button id="btn-print" class="btn primary">🖨️ Imprimir</button>
@@ -182,7 +195,7 @@
         <input type="text" id="edit-desc" maxlength="200" required>
       </div>
       <div class="field">
-        <label for="edit-caja">Caja (enviada)</label>
+        <label for="edit-caja">Inversión</label>
         <select id="edit-caja"></select>
       </div>
       <div class="field-row">
@@ -231,7 +244,7 @@
         <input type="text" id="expense-name" maxlength="120" required>
       </div>
       <div class="field">
-        <label for="expense-caja">Caja</label>
+        <label for="expense-caja">Inversión</label>
         <select id="expense-caja"></select>
       </div>
       <div class="field">

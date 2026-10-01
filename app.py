@@ -287,13 +287,14 @@ def init_db():
             "INSERT INTO expenses(name, amount_usd, amount_lps) VALUES(?,?,?)",
             ("Envío", 0, 0),
         )
-    # Semilla: la planilla que nos pasó es la "Segunda caja"; vendrán más
-    nc = db.execute("SELECT COUNT(*) AS n FROM cajas").fetchone()["n"]
-    if nc == 0:
-        db.execute(
-            "INSERT INTO cajas(name, created_at) VALUES(?,?)",
-            ("Segunda caja", int(time.time())),
-        )
+    # Limpieza: la "Segunda caja" inicial se retiró del diseño; si sigue
+    # existiendo y no tiene productos ni gastos asociados, se elimina.
+    # El usuario ahora crea sus propias inversiones con el nombre que quiera.
+    db.execute(
+        "DELETE FROM cajas WHERE name='Segunda caja'"
+        " AND NOT EXISTS (SELECT 1 FROM products WHERE products.caja_id=cajas.id)"
+        " AND NOT EXISTS (SELECT 1 FROM expenses WHERE expenses.caja_id=cajas.id)"
+    )
     db.commit()
     db.close()
 
@@ -561,7 +562,7 @@ def _check_caja(db, caja_id):
     if caja_id is None:
         return None
     ok = db.execute("SELECT id FROM cajas WHERE id=?", (caja_id,)).fetchone()
-    return None if ok else "La caja no existe."
+    return None if ok else "La inversión no existe."
 
 
 @app.route("/api/products", methods=["GET"])
@@ -859,7 +860,7 @@ def api_create_caja():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()[:80]
     if not name:
-        return jsonify({"error": "El nombre de la caja es obligatorio."}), 400
+        return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db = get_db()
     cur = db.execute(
         "INSERT INTO cajas(name, created_at) VALUES(?,?)", (name, int(time.time()))
@@ -877,7 +878,7 @@ def api_update_caja(cid):
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()[:80]
     if not name:
-        return jsonify({"error": "El nombre de la caja es obligatorio."}), 400
+        return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
     db.commit()
     return jsonify({"ok": True})
