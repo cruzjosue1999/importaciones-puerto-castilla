@@ -472,6 +472,28 @@
           : 'Esta inversión aún no tiene gastos. Agrega el primero abajo.') + '</p>';
         return;
       }
+      if (productFilter === 'all') {
+        // Vista "Todas": una tarjeta por categoría que suma los montos de
+        // todas las inversiones (primera, segunda, tercera y futuras).
+        var groups = {}, order = [];
+        list.forEach(function (e) {
+          var key = (e.name || '').trim().toLowerCase();
+          if (!groups[key]) { groups[key] = { name: (e.name || '').trim(), usd: 0, lps: 0 }; order.push(key); }
+          groups[key].usd += Number(e.amount_usd) || 0;
+          groups[key].lps += Number(e.amount_lps) || 0;
+        });
+        box.innerHTML = order.map(function (k) {
+          var g = groups[k];
+          return '<article class="card"><div class="card-body">' +
+            '<h3 class="card-title">' + escapeHtml(g.name) + '</h3>' +
+            '<p class="card-meta">🗂️ Suma de todas las inversiones</p>' +
+            '<div class="nums">' +
+            numRow('Monto en $', fmtD(g.usd), true) +
+            numRow('Monto en LPS', fmtL(g.lps), true) +
+            '</div></div></article>';
+        }).join('');
+        return;
+      }
       box.innerHTML = list.map(function (e) {
         var meta = e.caja_name ? '<p class="card-meta">📁 ' + escapeHtml(e.caja_name) + '</p>' : '';
         return '<article class="card"><div class="card-body">' +
