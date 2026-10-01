@@ -785,7 +785,7 @@
             '<span class="sheet-card-meta">' + sh.rows.length + ' productos' + gan + '</span>' +
             '<span class="chev">▼</span>' +
             '</button>' +
-            '<div class="sheet-card-body hidden">' + sheetTableHtml(sh) + '</div>' +
+            '<div class="sheet-card-body hidden"><div class="table-scroll">' + sheetTableHtml(sh) + '</div></div>' +
             '</div>';
         }).join('');
         var heads = $('sheet-wrap').querySelectorAll('.sheet-card-head');
