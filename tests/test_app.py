@@ -420,3 +420,119 @@ def test_nueva_caja_nace_con_tax_y_envio_propios(client):
     assert client.delete(f"/api/cajas/{cid}").status_code == 200
     rest = [e for e in client.get("/api/expenses").get_json() if e.get("caja_id") == cid]
     assert rest == []
+
+
+# ---------- hoja por caja (vista "Todas las cajas") ----------
+
+def test_sheet_all_mode_returns_per_caja_sheets(client):
+    """?caja_id=all en /api/sheet: una hoja por caja, cada una con SUS
+    propios datos (no un solo total sumado de todas las cajas)."""
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja Uno"}).get_json()["id"]
+    c2 = client.post("/api/cajas", json={"name": "Caja Dos"}).get_json()["id"]
+    client.post("/api/products", json={"description": "A1", "purchase_usd": 10,
+                                      "cost_lps": 100, "sale_lps": 300,
+                                      "quantity": 1, "caja_id": c1})
+    client.post("/api/products", json={"description": "B1", "purchase_usd": 20,
+                                      "cost_lps": 50, "sale_lps": 150,
+                                      "quantity": 1, "caja_id": c2})
+    client.post("/api/expenses", json={"name": "Tax", "amount_usd": 5, "caja_id": c1})
+    client.post("/api/expenses", json={"name": "Envío", "amount_lps": 40, "caja_id": c2})
+
+    s = client.get("/api/sheet?caja_id=all").get_json()
+    assert s["mode"] == "per_caja"
+    assert [sh["caja_name"] for sh in s["sheets"]] == ["Caja Uno", "Caja Dos"]
+    sh1, sh2 = s["sheets"]
+    # Cada hoja trae solo sus productos/gastos, con su propio resumen
+    assert [r[0] for r in sh1["rows"]] == ["A1"]
+    assert [r[0] for r in sh1["summary_rows"] if r[0] == "Tax"][0] == "Tax"
+    assert sh1["rows"][0][1] == pytest.approx(-10)     # solo su USD
+    assert [r[0] for r in sh2["rows"]] == ["B1"]
+    assert sh2["rows"][0][1] == pytest.approx(-20)
+    # Ganancia libre por caja: venta - costo - gastos DE ESA caja
+    t1 = next(r for r in sh1["summary_rows"] if r[0] == "Total + envío")
+    t2 = next(r for r in sh2["summary_rows"] if r[0] == "Total + envío")
+    assert t1[4] == pytest.approx(300 - 100)        # sin gastos LPS en caja 1
+    assert t2[4] == pytest.approx(150 - 50 - 40)    # con su Envío de 40
+    # Comisión por caja, no sobre el total sumado
+    assert sh1["summary_rows"][-2][0] == "Comisión tía Wendy (45%)"
+    assert sh1["summary_rows"][-2][4] == pytest.approx(-t1[4] * 0.45)
+    assert sh2["summary_rows"][-2][4] == pytest.approx(-t2[4] * 0.45)
+
+    # /api/sheet sin parámetro sigue devolviendo la hoja combinada (una sola)
+    s_comb = client.get("/api/sheet").get_json()
+    assert "sheets" not in s_comb
+    assert len(s_comb["rows"]) == 2
+
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
+
+
+def test_sheet_all_mode_includes_unassigned(client):
+    """Los productos/gastos sin caja no se pierden en el modo por caja:
+    van en una hoja 'Sin caja asignada'."""
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja Sola"}).get_json()["id"]
+    client.post("/api/products", json={"description": "Suelto", "cost_lps": 100,
+                                      "sale_lps": 200, "caja_id": c1})
+    client.post("/api/expenses", json={"name": "General", "amount_lps": 10})
+    s = client.get("/api/sheet?caja_id=all").get_json()
+    names = [sh["caja_name"] for sh in s["sheets"]]
+    assert names == ["Caja Sola", "Sin caja asignada"]
+    suelta = s["sheets"][1]
+    general = next(r for r in suelta["summary_rows"] if r[0] == "General")
+    assert general[2] == pytest.approx(-10)  # el gasto general, en LPS negativo
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
+
+
+def test_sheet_csv_all_mode_has_per_caja_sections(client):
+    """/api/sheet.csv?caja_id=all: una sección por caja con su nombre."""
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja CSV1"}).get_json()["id"]
+    client.post("/api/products", json={"description": "P1", "cost_lps": 100,
+                                      "sale_lps": 250, "caja_id": c1})
+    r = client.get("/api/sheet.csv?caja_id=all")
+    assert r.status_code == 200
+    assert "text/csv" in r.content_type
+    text = r.data.decode("utf-8-sig")
+    assert "Caja: Caja CSV1" in text
+    assert "P1" in text
+    assert "Comisión tía Wendy (45%)" in text
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
+
+
+# ---------- gráficas: inversión solo de productos ----------
+
+def test_summary_inversion_es_solo_productos(client):
+    """Contrato para la pestaña Gráficas: 'Inversión en inventario' usa
+    total_costo_lps (solo productos) y la ganancia es venta menos eso,
+    sin importar los gastos (Tax/Envío)."""
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja G"}).get_json()["id"]
+    client.post("/api/products", json={"description": "P1", "cost_lps": 800,
+                                      "sale_lps": 1000, "caja_id": c1})
+    client.post("/api/expenses", json={"name": "Tax", "amount_lps": 86, "caja_id": c1})
+    client.post("/api/expenses", json={"name": "Envío", "amount_lps": 5300, "caja_id": c1})
+    s = client.get("/api/summary").get_json()
+    assert s["total_costo_lps"] == pytest.approx(800)   # sin gastos
+    assert s["total_venta_lps"] == pytest.approx(1000)
+    assert s["exp_lps"] == pytest.approx(86 + 5300)    # los gastos siguen aparte
+    # Lo que muestra Gráficas: inversión 800, ganancia 1000-800=200
+    ganancia = s["total_venta_lps"] - s["total_costo_lps"]
+    assert ganancia == pytest.approx(200)
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
