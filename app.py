@@ -934,8 +934,8 @@ def api_summary():
 
 
 SHEET_COLUMNS = ["Describcion", "Talla zapato", "Talla camisa", "Cant.",
-                 "Total pagado $$", "Pagado en LPS", "Ganancia",
-                 "Menos gastos ganancia libre"]
+                 "Total pagado $$", "Pagado en LPS", "Ingresos",
+                 "Ganancia libre"]
 
 COMMISSION_NAME = "Comisión tía Wendy"
 COMMISSION_RATE = 0.45  # 45% de la ganancia libre (después de compra, envío e impuestos)

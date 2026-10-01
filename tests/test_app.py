@@ -183,13 +183,13 @@ def test_sheet_mirrors_spreadsheet(client):
     s = client.get("/api/sheet").get_json()
     assert s["columns"] == ["Describcion", "Talla zapato", "Talla camisa", "Cant.",
                             "Total pagado $$", "Pagado en LPS",
-                            "Ganancia", "Menos gastos ganancia libre"]
+                            "Ingresos", "Ganancia libre"]
     assert len(s["rows"]) == 1
     row = s["rows"][0]
     assert row[0] == "Multi for him 150 ct"
     assert row[4] == pytest.approx(-20)       # pagado, negativo
     assert row[5] == pytest.approx(-534.2)    # pagado LPS, negativo
-    assert row[6] == pytest.approx(700)       # ganancia (precio de venta)
+    assert row[6] == pytest.approx(700)       # ingresos (precio de venta)
     assert row[7] == pytest.approx(700 - 534.2)  # ganancia libre
     # filas de resumen: Total, Tax, Envío, Total + envío, Comisión tía Wendy, Ganancia neta
     labels = [r[0] for r in s["summary_rows"]]
