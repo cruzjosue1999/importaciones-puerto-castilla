@@ -724,6 +724,9 @@ def api_summary():
 SHEET_COLUMNS = ["Describcion", "Total pagado $$", "Pagado en LPS", "Ganancia",
                  "Menos gastos ganancia libre"]
 
+COMMISSION_NAME = "Comisión tía Wendy"
+COMMISSION_RATE = 0.45  # 45% de la ganancia libre (después de compra, envío e impuestos)
+
 
 def _sheet_data(db):
     """Filas de la hoja como la planilla: por producto + resumen."""
@@ -753,6 +756,14 @@ def _sheet_data(db):
         ["Total + envío", -(t["total_usd"] + t["exp_usd"]),
          -(t["total_costo_lps"] + t["exp_lps"]), t["total_venta_lps"],
          t["ganancia_libre_total"]]
+    )
+    comision = t["ganancia_libre_total"] * COMMISSION_RATE
+    summary_rows.append(
+        [f"{COMMISSION_NAME} (45%)", "", "", "", -comision]
+    )
+    summary_rows.append(
+        ["Christian (55%)", "", "", "",
+         t["ganancia_libre_total"] - comision]
     )
     return {"columns": SHEET_COLUMNS, "rows": rows, "summary_rows": summary_rows}
 
