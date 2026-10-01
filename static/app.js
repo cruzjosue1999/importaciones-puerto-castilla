@@ -104,6 +104,21 @@
     });
   }
 
+  /* La carpeta seleccionada manda en toda la app: los productos nuevos,
+     los gastos nuevos y los filtros de Hoja y Gráficas la siguen. */
+  function followInvestment(id) {
+    if (id === 'none') return;
+    ['add-caja', 'exp-caja', 'sheet-caja', 'charts-caja'].forEach(function (sid) {
+      var el = $(sid);
+      if (!el) return;
+      if (id === 'all') {
+        if (sid === 'sheet-caja' || sid === 'charts-caja') el.value = 'all';
+        return;
+      }
+      if (el.querySelector('option[value="' + id + '"]')) el.value = String(id);
+    });
+  }
+
   function renderChips() {
     var box = $('caja-chips');
     var h = '<button class="chip' + (productFilter === 'all' ? ' active' : '') + '" data-f="all">Todas</button>';
@@ -117,6 +132,7 @@
       b.addEventListener('click', function () {
         productFilter = b.getAttribute('data-f');
         renderChips();
+        followInvestment(productFilter);
         loadProducts();
       });
     });
@@ -368,14 +384,16 @@
         });
         notice('✅ Inversión actualizada.');
       } else {
-        await api('/api/cajas', {
+        var nc = await api('/api/cajas', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name: name })
         });
         notice('✅ Inversión creada.');
+        productFilter = String(nc.id);
       }
       resetCajaForm();
       await loadCajas();
+      followInvestment(productFilter);
     } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
   });
   $('caja-cancel').addEventListener('click', resetCajaForm);
@@ -406,6 +424,7 @@
       notice('✅ Inversión creada.');
       productFilter = String(c.id);
       await loadCajas();
+      followInvestment(productFilter);
       loadProducts();
     } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
   });
