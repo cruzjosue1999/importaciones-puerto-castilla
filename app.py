@@ -276,6 +276,12 @@ def init_db():
     ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
     if "caja_id" not in ecols:
         db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
+    # Orden manual de inversiones: sort_order (menor = primero). Al agregar
+    # la columna, se conserva el orden actual (por id) como punto de partida.
+    ccols = [r["name"] for r in db.execute("PRAGMA table_info(cajas)").fetchall()]
+    if "sort_order" not in ccols:
+        db.execute("ALTER TABLE cajas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        db.execute("UPDATE cajas SET sort_order = id")
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
     n = db.execute("SELECT COUNT(*) AS n FROM expenses").fetchone()["n"]
     if n == 0:
@@ -855,7 +861,7 @@ def api_list_cajas():
     rows = db.execute(
         "SELECT c.id, c.name, COUNT(p.id) AS n_products FROM cajas c"
         " LEFT JOIN products p ON p.caja_id=c.id"
-        " GROUP BY c.id ORDER BY c.id"
+        " GROUP BY c.id ORDER BY c.sort_order, c.id"
     ).fetchall()
     return jsonify([dict(zip(["id", "name", "n_products"], r)) for r in rows])
 
@@ -867,8 +873,10 @@ def api_create_caja():
     if not name:
         return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db = get_db()
+    mx = db.execute("SELECT COALESCE(MAX(sort_order), 0) FROM cajas").fetchone()[0]
     cur = db.execute(
-        "INSERT INTO cajas(name, created_at) VALUES(?,?)", (name, int(time.time()))
+        "INSERT INTO cajas(name, created_at, sort_order) VALUES(?,?,?)",
+        (name, int(time.time()), mx + 1),
     )
     new_id = cur.lastrowid
     # Cada inversión nace con sus propios Tax y Envío en $0, sin mezclarse
@@ -893,6 +901,12 @@ def api_update_caja(cid):
     if not name:
         return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
+    if "sort_order" in data:
+        try:
+            so = int(data["sort_order"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "sort_order no válido."}), 400
+        db.execute("UPDATE cajas SET sort_order=? WHERE id=?", (so, cid))
     db.commit()
     return jsonify({"ok": True})
 
@@ -1016,7 +1030,7 @@ def _per_caja_sheets(db):
     Los productos/gastos sin caja asignada van en una hoja aparte
     ('Sin caja asignada') para que nada se pierda."""
     sheets = []
-    cajas = db.execute("SELECT id, name FROM cajas ORDER BY id").fetchall()
+    cajas = db.execute("SELECT id, name FROM cajas ORDER BY sort_order, id").fetchall()
     for c in cajas:
         d = _sheet_data(db, c["id"])
         sheets.append({"caja_id": c["id"], "caja_name": c["name"],
