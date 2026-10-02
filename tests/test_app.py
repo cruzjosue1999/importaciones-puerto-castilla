@@ -734,3 +734,34 @@ def test_caja_exenciones_en_pending(client):
     _clean_products(client)
     _clean_expenses(client)
     _clean_cajas(client)
+
+
+# ---------- pérdida masiva + pérdida fuera de "sin precio" ----------
+
+def test_lost_all_marca_perdida_y_quita_vendido(client):
+    _clean_products(client)
+    ids = []
+    for d in ("P uno", "P dos", "P tres"):
+        ids.append(client.post("/api/products", json={"description": d}).get_json()["id"])
+    # uno vendido de antemano: la pérdida debe quitarle el vendido
+    client.put("/api/products/%d/sold" % ids[0], json={"sold": True})
+    assert client.post("/api/products/lost_all", json={"ids": []}).get_json()["marcados"] == 0
+    r = client.post("/api/products/lost_all", json={"ids": ids})
+    assert r.get_json()["marcados"] == 3
+    lst = {p["id"]: p for p in client.get("/api/products").get_json()}
+    assert all(lst[i]["lost"] is True and lst[i]["sold"] is False for i in ids)
+    assert client.post("/api/products/lost_all", json={"ids": [999999]}).get_json()["marcados"] == 0
+    _clean_products(client)
+
+
+def test_perdida_no_cuenta_como_sin_precio(client):
+    _clean_products(client)
+    pid = client.post("/api/products", json={"description": "Sin precio"}).get_json()["id"]
+    assert client.get("/api/pending").get_json()["sin_precio"] == 1
+    # al marcarlo como pérdida sale de los pendientes de precio
+    client.put("/api/products/%d/lost" % pid, json={"lost": True})
+    assert client.get("/api/pending").get_json()["sin_precio"] == 0
+    # al quitar la pérdida vuelve a contar
+    client.put("/api/products/%d/lost" % pid, json={"lost": False})
+    assert client.get("/api/pending").get_json()["sin_precio"] == 1
+    _clean_products(client)
