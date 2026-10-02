@@ -289,6 +289,10 @@ def init_db():
     if "sort_order" not in ccols:
         db.execute("ALTER TABLE cajas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         db.execute("UPDATE cajas SET sort_order = id")
+    if "exenta_fotos" not in ccols:
+        db.execute("ALTER TABLE cajas ADD COLUMN exenta_fotos INTEGER NOT NULL DEFAULT 0")
+    if "exenta_tax" not in ccols:
+        db.execute("ALTER TABLE cajas ADD COLUMN exenta_tax INTEGER NOT NULL DEFAULT 0")
     # Respaldo: toda inversión anterior o nueva tiene sus tarjetas Tax y Envío.
     # Va DESPUÉS de la limpieza para no revivir la vieja "Segunda caja".
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
@@ -779,6 +783,7 @@ def api_mark_sold_all():
     data = request.get_json(silent=True) or {}
     ids = data.get("ids") or []
     ids = [int(i) for i in ids if str(i).isdigit()]
+    sold = 0 if data.get("sold") in (False, 0, "0", "false", "no") else 1
     if not ids:
         return jsonify({"ok": True, "marcados": 0})
     # Lotes para no exceder el límite de variables de SQLite
@@ -787,7 +792,7 @@ def api_mark_sold_all():
         lote = ids[j:j + 500]
         ph = ",".join("?" for _ in lote)
         cur = db.execute(
-            "UPDATE products SET sold=1 WHERE id IN (%s)" % ph, lote)
+            "UPDATE products SET sold=? WHERE id IN (%s)" % ph, [sold] + lote)
         marcados += cur.rowcount
     db.commit()
     return jsonify({"ok": True, "marcados": marcados})
@@ -803,8 +808,10 @@ def api_pending():
     pf = "WHERE p.caja_id=?" if caja_id is not None else ""
     pp = [caja_id] if caja_id is not None else []
     and_pf = (pf + " AND") if pf else "WHERE"
+    # Las cajas exentas de fotos no cuentan como pendientes de foto.
     sin_foto = db.execute(
-        "SELECT COUNT(*) AS n FROM products p %s p.photo IS NULL" % and_pf, pp
+        "SELECT COUNT(*) AS n FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
+        " %s p.photo IS NULL AND COALESCE(c.exenta_fotos, 0)=0" % and_pf, pp
     ).fetchone()["n"]
     sin_precio = db.execute(
         "SELECT COUNT(*) AS n FROM products p %s (p.sale_lps IS NULL OR p.sale_lps=0)" % and_pf, pp
@@ -812,9 +819,11 @@ def api_pending():
     ef = "WHERE e.caja_id=?" if caja_id is not None else ""
     epp = [caja_id] if caja_id is not None else []
     and_ef = (ef + " AND") if ef else "WHERE"
+    # El Tax de una caja exenta no cuenta como gasto pendiente.
     gastos = db.execute(
-        "SELECT COUNT(*) AS n FROM expenses e %s "
-        "((e.amount_usd IS NULL OR e.amount_usd=0) AND (e.amount_lps IS NULL OR e.amount_lps=0))" % and_ef, epp
+        "SELECT COUNT(*) AS n FROM expenses e LEFT JOIN cajas c ON c.id=e.caja_id"
+        " %s ((e.amount_usd IS NULL OR e.amount_usd=0) AND (e.amount_lps IS NULL OR e.amount_lps=0))"
+        " AND NOT (lower(trim(e.name))='tax' AND COALESCE(c.exenta_tax, 0)=1)" % and_ef, epp
     ).fetchone()["n"]
     return jsonify({"sin_foto": sin_foto, "sin_precio": sin_precio,
                     "gastos_pendientes": gastos})
@@ -971,11 +980,15 @@ def api_delete_expense(eid):
 def api_list_cajas():
     db = get_db()
     rows = db.execute(
-        "SELECT c.id, c.name, COUNT(p.id) AS n_products FROM cajas c"
+        "SELECT c.id, c.name, COUNT(p.id) AS n_products,"
+        " COALESCE(c.exenta_fotos, 0) AS exenta_fotos,"
+        " COALESCE(c.exenta_tax, 0) AS exenta_tax FROM cajas c"
         " LEFT JOIN products p ON p.caja_id=c.id"
         " GROUP BY c.id ORDER BY c.sort_order, c.id"
     ).fetchall()
-    return jsonify([dict(zip(["id", "name", "n_products"], r)) for r in rows])
+    return jsonify([dict(zip(
+        ["id", "name", "n_products", "exenta_fotos", "exenta_tax"], r))
+        for r in rows])
 
 
 def _ensure_caja_expenses(db, caja_id):
@@ -1013,6 +1026,9 @@ def api_create_caja():
     # Cada inversión nace con sus propios Tax y Envío en $0, sin mezclarse
     # con los de otras carpetas; él solo edita los montos.
     _ensure_caja_expenses(db, new_id)
+    for flag in ("exenta_fotos", "exenta_tax"):
+        if data.get(flag) in (True, 1, "1", "true"):
+            db.execute("UPDATE cajas SET %s=1 WHERE id=?" % flag, (new_id,))
     db.commit()
     return jsonify({"id": new_id, "name": name}), 201
 
@@ -1028,6 +1044,10 @@ def api_update_caja(cid):
     if not name:
         return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
+    for flag in ("exenta_fotos", "exenta_tax"):
+        if flag in data:
+            db.execute("UPDATE cajas SET %s=? WHERE id=?" % flag,
+                       (1 if data[flag] in (True, 1, "1", "true") else 0, cid))
     if "sort_order" in data:
         try:
             so = int(data["sort_order"])

@@ -692,3 +692,45 @@ def test_lost_toggle_excluye_sold_y_afecta_totales(client):
     resumen = [r for h in hojas for r in h["summary_rows"] if r[0] == "Pérdidas"]
     assert resumen and resumen[0][2] == -500
     _clean_products(client)
+
+
+# ---------- desmarcar todos + exenciones ----------
+
+def test_sold_all_con_sold_false_desmarca(client):
+    _clean_products(client)
+    ids = []
+    for d in ("X uno", "Y dos"):
+        ids.append(client.post("/api/products", json={"description": d}).get_json()["id"])
+    assert client.post("/api/products/sold_all", json={"ids": ids}).get_json()["marcados"] == 2
+    r = client.post("/api/products/sold_all", json={"ids": ids, "sold": False})
+    assert r.get_json()["marcados"] == 2
+    lst = {p["id"]: p for p in client.get("/api/products").get_json()}
+    assert all(not lst[i]["sold"] for i in ids)
+    _clean_products(client)
+
+
+def test_caja_exenciones_en_pending(client):
+    _clean_products(client)
+    _clean_cajas(client)
+    _clean_expenses(client)
+    cid = client.post("/api/cajas", json={"name": "Caja exenta"}).get_json()["id"]
+    # la caja nace con Tax y Envío en $0 -> 2 gastos pendientes
+    assert client.get("/api/pending").get_json()["gastos_pendientes"] == 2
+    # flags via PUT y visibles en GET
+    assert client.put("/api/cajas/%d" % cid,
+                      json={"name": "Caja exenta", "exenta_fotos": 1, "exenta_tax": 1}).status_code == 200
+    cajas = {c["id"]: c for c in client.get("/api/cajas").get_json()}
+    assert cajas[cid]["exenta_fotos"] == 1 and cajas[cid]["exenta_tax"] == 1
+    # producto sin foto en caja exenta: no cuenta como pendiente de foto
+    client.post("/api/products", json={"description": "Sin foto exenta", "caja_id": cid})
+    assert client.get("/api/pending").get_json()["sin_foto"] == 0
+    # Tax exento en $0: ya no cuenta como gasto pendiente (queda solo Envío)
+    assert client.get("/api/pending").get_json()["gastos_pendientes"] == 1
+    # al quitar la exención vuelve a contar
+    client.put("/api/cajas/%d" % cid,
+               json={"name": "Caja exenta", "exenta_fotos": 0, "exenta_tax": 0})
+    p = client.get("/api/pending").get_json()
+    assert p["sin_foto"] == 1 and p["gastos_pendientes"] == 2
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
