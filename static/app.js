@@ -166,7 +166,7 @@
 
   function refreshCajaSelects(keepValues) {
     var keep = {};
-    if (keepValues) ['add-caja', 'edit-caja', 'exp-caja', 'expense-caja', 'sheet-caja', 'charts-caja'].forEach(function (id) {
+    if (keepValues) ['add-caja', 'edit-caja', 'expense-caja', 'sheet-caja', 'charts-caja'].forEach(function (id) {
       var el = $(id); if (el) keep[id] = el.value;
     });
     var sc = $('sheet-caja'), cc = $('charts-caja');
@@ -176,7 +176,6 @@
     if (cc) cc.innerHTML = sc ? sc.innerHTML : '';
     var ac = $('add-caja'); if (ac) ac.innerHTML = '<option value="">Sin inversión</option>' + cajaOptionsHTML('');
     var ec = $('edit-caja'); if (ec) ec.innerHTML = '<option value="">Sin inversión</option>' + cajaOptionsHTML('');
-    var xc = $('exp-caja'); if (xc) xc.innerHTML = cajaOptionsHTML('', true);
     var mc = $('expense-caja'); if (mc) mc.innerHTML = cajaOptionsHTML('', true);
     if (keepValues) Object.keys(keep).forEach(function (id) {
       var el = $(id);
@@ -188,7 +187,7 @@
      los gastos nuevos y los filtros de Hoja y Gráficas la siguen. */
   function followInvestment(id) {
     if (id === 'none') return;
-    ['add-caja', 'exp-caja', 'sheet-caja', 'charts-caja'].forEach(function (sid) {
+    ['add-caja', 'sheet-caja', 'charts-caja'].forEach(function (sid) {
       var el = $(sid);
       if (!el) return;
       if (id === 'all') {
@@ -896,28 +895,6 @@
       loadExpenses();
     } catch (e) { notice(e.message, true); }
   }
-
-  $('add-expense-form').addEventListener('submit', async function (e) {
-    e.preventDefault();
-    var err = $('exp-error');
-    err.classList.add('hidden');
-    var body = {
-      name: $('exp-name').value.trim(),
-      caja_id: $('exp-caja').value || undefined,
-      amount_usd: $('exp-usd').value,
-      amount_lps: $('exp-lps').value
-    };
-    if (!body.name) { err.textContent = 'El nombre del gasto es obligatorio.'; err.classList.remove('hidden'); return; }
-    try {
-      await api('/api/expenses', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      $('add-expense-form').reset();
-      notice('✅ Gasto guardado.');
-      loadExpenses();
-    } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
-  });
 
   /* ---------- Gráficas (SVG puro, sin dependencias) ---------- */
 
