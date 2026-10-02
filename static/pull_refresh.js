@@ -92,7 +92,24 @@
       el.classList.add('reloading');
       el.innerHTML = '<span class="ptr-spinner"></span><span class="ptr-text">Actualizando…</span>';
       el.style.transform = 'translateY(0px)';
-      setTimeout(function () { window.location.reload(); }, 350);
+      setTimeout(function () {
+        var finished = false;
+        function done() {
+          if (finished) return;
+          finished = true;
+          el.classList.remove('reloading');
+          el.innerHTML = '<span class="ptr-arrow">↓</span><span class="ptr-text">Jala para actualizar</span>';
+          hide();
+        }
+        setTimeout(done, 10000); // seguridad: nunca dejar el indicador girando
+        // Actualiza los datos sin recargar la página: se queda en la pestaña
+        // actual (Gráficas, Hoja, etc.) en vez de volver a la principal.
+        if (typeof window.refreshAppData === 'function') {
+          window.refreshAppData().then(done, done);
+        } else {
+          window.location.reload();
+        }
+      }, 350);
     } else {
       hide();
     }

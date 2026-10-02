@@ -58,6 +58,16 @@
 
   /* ---------- navegación por pestañas ---------- */
   var tabLoaders = { graficas: loadSummary, hoja: loadSheet, productos: loadProducts, gastos: loadExpenses };
+  /* Refresca los datos sin recargar la página: se queda en la pestaña actual.
+     Lo usa el pull-to-refresh para no mandar al usuario a la página principal. */
+  async function refreshCurrentTab() {
+    await loadCajas();
+    followInvestment(productFilter);
+    var active = document.querySelector('.tab.active');
+    var tab = active ? active.id.replace(/^tab-/, '') : null;
+    if (tab && tabLoaders[tab]) await tabLoaders[tab]();
+  }
+  window.refreshAppData = refreshCurrentTab;
   document.querySelectorAll('.tabbtn').forEach(function (btn) {
     btn.addEventListener('click', function () {
       document.querySelectorAll('.tabbtn').forEach(function (b) { b.classList.remove('active'); });
