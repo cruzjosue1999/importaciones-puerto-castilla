@@ -89,6 +89,40 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 .btn.primary { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 700; }
 .btn.danger { color: var(--red); border-color: #f0b4b8; }
 .btn:active { transform: scale(.98); }
+.btn.sold-btn { color: #15803d; border-color: #bbf7d0; background: #f0fdf4; font-weight: 700; }
+
+/* ---- Buscador de productos ---- */
+#prod-searchbar { margin-bottom: 10px; }
+#prod-search { width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 1rem; background: var(--card); color: var(--text); margin-bottom: 8px; }
+.pchip-row { display: flex; gap: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+.pchip { padding: 6px 14px; border-radius: 999px; border: 1px solid var(--border); background: var(--card); color: var(--text); font-size: .85rem; white-space: nowrap; cursor: pointer; }
+.pchip.active { background: var(--navy); color: #fff; border-color: var(--navy); font-weight: 700; }
+
+/* ---- Resumen de ventas ---- */
+.sales-strip { background: var(--card); border-radius: 10px; padding: 9px 12px; font-size: .85rem; color: var(--muted); margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.sales-strip b { color: var(--text); }
+
+/* ---- Vendido ---- */
+.sold-badge { display: inline-block; font-size: .68rem; font-weight: 700; background: #6b7280; color: #fff; border-radius: 6px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
+
+/* ---- Comparar cajas ---- */
+.compare-bars { background: var(--card); border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+.cmp-row { margin-bottom: 14px; }
+.cmp-row:last-child { margin-bottom: 0; }
+.cmp-name { font-weight: 700; margin-bottom: 6px; }
+.cmp-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.cmp-lbl { font-size: .75rem; color: var(--muted); width: 92px; flex-shrink: 0; }
+.cmp-track { flex: 1; height: 14px; background: #eef1f4; border-radius: 7px; overflow: hidden; }
+.cmp-fill { display: block; height: 100%; border-radius: 7px; }
+.cmp-val { font-size: .8rem; font-weight: 700; min-width: 86px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* ---- Pendientes ---- */
+.pending-rows { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
+.pend-row { display: flex; align-items: center; gap: 10px; width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; cursor: pointer; text-align: left; color: var(--text); }
+.pend-check { width: 22px; height: 22px; border: 2px solid var(--muted); border-radius: 50%; flex-shrink: 0; }
+.pend-label { flex: 1; font-size: .95rem; }
+.pend-count { font-size: .8rem; font-weight: 700; background: #f0b429; color: #5a4300; border-radius: 8px; padding: 2px 10px; }
+.pend-go { font-size: .8rem; color: var(--muted); }
 
 /* Formularios */
 .form { background: var(--card); border-radius: var(--radius); padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }

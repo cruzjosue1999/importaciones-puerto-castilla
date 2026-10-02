@@ -536,3 +536,48 @@ def test_summary_inversion_es_solo_productos(client):
     _clean_products(client)
     _clean_expenses(client)
     _clean_cajas(client)
+
+
+# ---------- vendido: marcar/desmarcar ----------
+
+def test_sold_toggle_y_json(client):
+    _clean_cajas(client)
+    _clean_products(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja V"}).get_json()["id"]
+    pid = client.post("/api/products", json={"description": "PV", "cost_lps": 100,
+                                           "sale_lps": 300, "caja_id": c1}).get_json()["id"]
+    assert client.get("/api/products/%d" % pid).get_json()["sold"] is False
+    r = client.put("/api/products/%d/sold" % pid, json={"sold": True})
+    assert r.status_code == 200 and r.get_json()["sold"] is True
+    assert client.get("/api/products/%d" % pid).get_json()["sold"] is True
+    lst = client.get("/api/products?caja_id=%d" % c1).get_json()
+    assert [p for p in lst if p["id"] == pid][0]["sold"] is True
+    r = client.put("/api/products/%d/sold" % pid, json={"sold": False})
+    assert r.get_json()["sold"] is False
+    assert client.put("/api/products/999999/sold", json={"sold": True}).status_code == 404
+    _clean_products(client)
+    _clean_cajas(client)
+
+
+# ---------- pendientes ----------
+
+def test_pending_counts(client):
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja P"}).get_json()["id"]
+    client.post("/api/products", json={"description": "Sin foto ni precio",
+                                    "caja_id": c1})  # sale_lps 0 -> sin precio
+    client.post("/api/products", json={"description": "Completo", "cost_lps": 50,
+                                    "sale_lps": 120, "caja_id": c1})
+    p = client.get("/api/pending").get_json()
+    assert p["sin_foto"] == 2
+    assert p["sin_precio"] == 1
+    # Tax y Envío en $0 de la caja nueva cuentan como pendientes
+    assert p["gastos_pendientes"] == 2
+    p1 = client.get("/api/pending?caja_id=%d" % c1).get_json()
+    assert p1["sin_foto"] == 2 and p1["sin_precio"] == 1
+    assert client.get("/api/pending?caja_id=nope").status_code == 400
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)

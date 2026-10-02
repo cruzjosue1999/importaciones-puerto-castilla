@@ -76,6 +76,21 @@
     });
   });
 
+  /* ---------- buscador y filtros de productos ---------- */
+  var prodSearchInput = $('prod-search');
+  if (prodSearchInput) {
+    prodSearchInput.addEventListener('input', function (e) {
+      prodSearch = e.target.value;
+      renderProducts();
+    });
+  }
+  var prodChips = $('prod-chips');
+  if (prodChips) {
+    prodChips.querySelectorAll('.pchip').forEach(function (c) {
+      c.addEventListener('click', function () { setProdChip(c.getAttribute('data-f')); });
+    });
+  }
+
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
   var productFilter = 'all'; // 'all' | 'none' | <id>
@@ -236,7 +251,8 @@
     var metaHtml = meta.length ? '<p class="card-meta">' + meta.join(' &nbsp;·&nbsp; ') + '</p>' : '';
     return '<article class="card" data-id="' + p.id + '">' +
       '<button type="button" class="card-toggle">' +
-      '<span class="card-toggle-title">' + escapeHtml(p.description) + '</span>' +
+      '<span class="card-toggle-title">' + escapeHtml(p.description) +
+      (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') + '</span>' +
       '<span class="chev">▼</span>' +
       '</button>' +
       '<div class="card-detail hidden">' + photo +
@@ -250,6 +266,8 @@
       '<div class="card-actions">' +
       '<button class="btn edit-btn" data-id="' + p.id + '">✏️ Editar</button>' +
       '<button class="btn danger del-btn" data-id="' + p.id + '">🗑️ Eliminar</button>' +
+      '<button class="btn sold-btn" data-id="' + p.id + '" data-sold="' + (p.sold ? 1 : 0) + '">' +
+      (p.sold ? '↩ Quitar vendido' : '✓ Marcar como vendido') + '</button>' +
       '</div></div></div></article>';
   }
   function numRow(label, value, isTotal) {
@@ -289,39 +307,126 @@
     });
   }
 
-  async function loadProducts() {
+  /* ---------- Productos: buscador, filtros y vendidos ---------- */
+  var productListCache = [];
+  var prodSearch = '';
+  var prodChip = 'all'; // all | sold | pending | nophoto
+
+  function filteredProducts() {
+    var q = prodSearch.trim().toLowerCase();
+    return productListCache.filter(function (p) {
+      if (q && String(p.description || '').toLowerCase().indexOf(q) < 0) return false;
+      if (prodChip === 'sold') return !!p.sold;
+      if (prodChip === 'pending') return !p.sold;
+      if (prodChip === 'nophoto') return !p.photo_url;
+      return true;
+    });
+  }
+
+  function renderSalesStrip() {
+    var strip = $('sales-strip');
+    if (!strip) return;
+    var v = productListCache.filter(function (p) { return p.sold; });
+    var real = v.reduce(function (a, p) { return a + (p.ganancia_libre || 0); }, 0);
+    strip.innerHTML = '<span>Vendidos: <b>' + v.length + '</b></span> · ' +
+      '<span>Pendientes: <b>' + (productListCache.length - v.length) + '</b></span> · ' +
+      '<span>Ganancia real: <b>' + fmtL(real) + '</b></span>';
+    strip.classList.toggle('hidden', productListCache.length === 0);
+  }
+
+  function setProdChip(f) {
+    prodChip = f;
+    var chips = $('prod-chips');
+    if (chips) chips.querySelectorAll('.pchip').forEach(function (c) {
+      c.classList.toggle('active', c.getAttribute('data-f') === f);
+    });
+    renderProducts();
+  }
+
+  function renderProducts() {
     var box = $('product-list');
+    if (!box) return;
+    var list = filteredProducts();
+    $('no-products').classList.toggle('hidden', list.length > 0);
+    if (productFilter === 'all') {
+      // "Todas": una tarjeta por caja (en el orden de la app) con sus productos adentro.
+      var groups = [], seen = {};
+      cajasCache.forEach(function (c) {
+        groups.push({ id: c.id, name: c.name, items: [] });
+        seen[String(c.id)] = groups[groups.length - 1];
+      });
+      var noneGroup = { id: 'none', name: 'Sin inversión', items: [] };
+      list.forEach(function (p) {
+        var g = (p.caja_id !== null && p.caja_id !== undefined && seen[String(p.caja_id)])
+          ? seen[String(p.caja_id)] : noneGroup;
+        g.items.push(p);
+      });
+      if (noneGroup.items.length) groups.push(noneGroup);
+      // Ocultar cajas vacías cuando hay búsqueda o filtro activo
+      var filtering = prodSearch.trim() !== '' || prodChip !== 'all';
+      box.innerHTML = groups
+        .filter(function (g) { return !filtering || g.items.length > 0; })
+        .map(function (g) { return productGroup(g.name, g.items); }).join('');
+    } else {
+      box.innerHTML = list.map(productCard).join('');
+    }
+    wireAccordion(box);
+    box.querySelectorAll('.edit-btn').forEach(function (b) {
+      b.addEventListener('click', function () { openEdit(Number(b.getAttribute('data-id'))); });
+    });
+    box.querySelectorAll('.del-btn').forEach(function (b) {
+      b.addEventListener('click', function () { delProduct(Number(b.getAttribute('data-id'))); });
+    });
+    box.querySelectorAll('.sold-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        toggleSold(Number(b.getAttribute('data-id')), b.getAttribute('data-sold') !== '1');
+      });
+    });
+  }
+
+  async function toggleSold(id, toSold) {
+    try {
+      await api('/api/products/' + id + '/sold', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sold: toSold })
+      });
+      await loadProducts();
+      notice(toSold ? '✅ Marcado como vendido.' : '↩ Vuelto a pendiente.');
+    } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
+  }
+
+  async function loadProducts() {
     try {
       var url = '/api/products';
       if (productFilter !== 'all') url += '?caja_id=' + encodeURIComponent(productFilter);
-      var list = await api(url);
-      $('no-products').classList.toggle('hidden', list.length > 0);
-      if (productFilter === 'all') {
-        // "Todas": una tarjeta por caja (en el orden de la app) con sus productos adentro.
-        var groups = [], seen = {};
-        cajasCache.forEach(function (c) {
-          groups.push({ id: c.id, name: c.name, items: [] });
-          seen[String(c.id)] = groups[groups.length - 1];
-        });
-        var noneGroup = { id: 'none', name: 'Sin inversión', items: [] };
-        list.forEach(function (p) {
-          var g = (p.caja_id !== null && p.caja_id !== undefined && seen[String(p.caja_id)])
-            ? seen[String(p.caja_id)] : noneGroup;
-          g.items.push(p);
-        });
-        if (noneGroup.items.length) groups.push(noneGroup);
-        box.innerHTML = groups.map(function (g) { return productGroup(g.name, g.items); }).join('');
-      } else {
-        box.innerHTML = list.map(productCard).join('');
-      }
-      wireAccordion(box);
-      box.querySelectorAll('.edit-btn').forEach(function (b) {
-        b.addEventListener('click', function () { openEdit(Number(b.getAttribute('data-id'))); });
-      });
-      box.querySelectorAll('.del-btn').forEach(function (b) {
-        b.addEventListener('click', function () { delProduct(Number(b.getAttribute('data-id'))); });
-      });
+      productListCache = await api(url);
+      renderSalesStrip();
+      renderProducts();
     } catch (e) { notice('No se pudieron cargar los productos: ' + e.message, true); }
+  }
+
+  async function openEdit(id) {
+    try {
+      var p = await api('/api/products/' + id);
+    } catch (e) { notice(e.message, true); return; }
+    $('edit-id').value = p.id;
+    $('edit-desc').value = p.description;
+    $('edit-caja').value = p.caja_id || '';
+    $('edit-size-shoes').value = p.size_shoes || '';
+    $('edit-size-shirts').value = p.size_shirts || '';
+    $('edit-quantity').value = p.quantity || 1;
+    $('edit-usd').value = p.purchase_usd;
+    $('edit-cost').value = p.cost_lps;
+    $('edit-sale').value = p.sale_lps;
+    $('edit-remove-photo').checked = false;
+    var img = $('edit-photo-preview-img'), ph = document.querySelector('#edit-photo-preview .photo-placeholder');
+    if (p.photo_url) {
+      img.src = p.photo_url; img.classList.remove('hidden'); ph.classList.add('hidden');
+    } else {
+      img.src = ''; img.classList.add('hidden'); ph.classList.remove('hidden');
+    }
+    $('edit-error').classList.add('hidden');
+    $('edit-modal').classList.remove('hidden');
   }
 
   async function delProduct(id) {
@@ -736,11 +841,83 @@
       drawDonut(s);
       drawPie(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
+    loadCompare();
+    loadPending();
+  }
+  function switchTab(tab) {
+    var btn = document.querySelector('.tabbtn[data-tab="' + tab + '"]');
+    if (btn) btn.click();
   }
   function profitCard(ico, label, value) {
     return '<div class="profit-card"><span class="pc-ico">' + ico + '</span>' +
       '<span class="pc-label">' + label + '</span>' +
       '<span class="pc-value">' + value + '</span></div>';
+  }
+
+  /* ---------- Comparar cajas ---------- */
+  function cmpBar(label, val, max, color) {
+    var pct = max > 0 ? Math.max(val, 0) / max * 100 : 0;
+    return '<div class="cmp-bar"><span class="cmp-lbl">' + label + '</span>' +
+      '<span class="cmp-track"><span class="cmp-fill" style="width:' + pct.toFixed(1) +
+      '%;background:' + color + '"></span></span>' +
+      '<span class="cmp-val">' + fmtL(val) + '</span></div>';
+  }
+
+  async function loadCompare() {
+    var wrap = $('compare-box');
+    if (!wrap) return;
+    var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+    if (cv !== 'all' || !cajasCache.length) { wrap.classList.add('hidden'); return; }
+    wrap.classList.remove('hidden');
+    try {
+      var rows = [];
+      for (var i = 0; i < cajasCache.length; i++) {
+        var s = await api('/api/summary?caja_id=' + cajasCache[i].id);
+        rows.push({ name: cajasCache[i].name, inv: s.total_costo_lps || 0,
+                    libre: s.ganancia_libre_total || 0 });
+      }
+      var max = 1;
+      rows.forEach(function (r) { max = Math.max(max, r.inv, Math.max(r.libre, 0)); });
+      $('compare-bars').innerHTML = rows.map(function (r) {
+        return '<div class="cmp-row"><div class="cmp-name">📦 ' + escapeHtml(r.name) + '</div>' +
+          cmpBar('Inversión', r.inv, max, '#0a2a5e') +
+          cmpBar('Ganancia libre', r.libre, max, '#f0b429') + '</div>';
+      }).join('');
+    } catch (e) { $('compare-bars').innerHTML = '<p class="hint">No se pudo comparar.</p>'; }
+  }
+
+  /* ---------- Pendientes ---------- */
+  async function loadPending() {
+    var box = $('pending-rows');
+    if (!box) return;
+    try {
+      var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+      var url = '/api/pending' + (cv && cv !== 'all' ? '?caja_id=' + encodeURIComponent(cv) : '');
+      var p = await api(url);
+      var rows = [
+        { n: p.sin_foto, label: 'productos sin foto', tab: 'productos', chip: 'nophoto' },
+        { n: p.sin_precio, label: 'productos sin precio de venta', tab: 'productos', chip: null },
+        { n: p.gastos_pendientes, label: 'gastos sin registrar', tab: 'gastos', chip: null }
+      ].filter(function (r) { return r.n > 0; });
+      if (!rows.length) {
+        box.innerHTML = '<p class="hint">✅ Todo completo, sin pendientes.</p>';
+        return;
+      }
+      box.innerHTML = rows.map(function (r, i) {
+        return '<button type="button" class="pend-row" data-i="' + i + '">' +
+          '<span class="pend-check"></span>' +
+          '<span class="pend-label">' + r.n + ' ' + r.label + '</span>' +
+          '<span class="pend-count">' + r.n + '</span>' +
+          '<span class="pend-go">Completar →</span></button>';
+      }).join('');
+      box.querySelectorAll('.pend-row').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var r = rows[Number(b.getAttribute('data-i'))];
+          if (r.chip) setProdChip(r.chip);
+          switchTab(r.tab);
+        });
+      });
+    } catch (e) { box.innerHTML = ''; }
   }
 
   /* ---------- Hoja ---------- */
