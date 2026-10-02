@@ -581,3 +581,22 @@ def test_pending_counts(client):
     _clean_products(client)
     _clean_expenses(client)
     _clean_cajas(client)
+
+
+# ---------- regresión: _Row de producción debe tener .keys() ----------
+
+def test_row_produccion_tiene_keys():
+    """El 2026-10-01 /api/products dio 500 en producción porque _Row
+    (libsql) no tenía .keys() y _product_json lo usa; en local sqlite3.Row
+    sí lo tiene y los tests no lo detectaron."""
+    from app import _Row, _product_json
+    cols = ["id", "description", "purchase_usd", "cost_lps", "sale_lps",
+            "ganancia_libre", "photo_url", "created_at", "caja_id",
+            "caja_name", "size_shoes", "size_shirts", "quantity", "sold",
+            "photo"]
+    row = _Row(cols, [1, "P", 10, 265, 400, 135, None, 0, None, None, "", "", 1, 1, None])
+    assert "sold" in row.keys()
+    j = _product_json(row)
+    assert j["sold"] is True
+    row2 = _Row(cols, [2, "Q", 10, 265, 400, 135, None, 0, None, None, "", "", 1, 0, None])
+    assert _product_json(row2)["sold"] is False

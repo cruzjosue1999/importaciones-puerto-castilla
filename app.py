@@ -110,6 +110,9 @@ class _Row:
     def __len__(self):
         return len(self._vals)
 
+    def keys(self):
+        return list(self._cols)
+
 
 class _Cursor:
     def __init__(self, cur):
