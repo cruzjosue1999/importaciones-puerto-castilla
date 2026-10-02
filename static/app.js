@@ -90,6 +90,12 @@
       c.addEventListener('click', function () { setProdChip(c.getAttribute('data-f')); });
     });
   }
+  var expFilterChips = $('exp-filter-chips');
+  if (expFilterChips) {
+    expFilterChips.querySelectorAll('.pchip').forEach(function (c) {
+      c.addEventListener('click', function () { setExpChip(c.getAttribute('data-f')); });
+    });
+  }
 
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
@@ -310,7 +316,7 @@
   /* ---------- Productos: buscador, filtros y vendidos ---------- */
   var productListCache = [];
   var prodSearch = '';
-  var prodChip = 'all'; // all | sold | pending | nophoto
+  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio
 
   function filteredProducts() {
     var q = prodSearch.trim().toLowerCase();
@@ -319,6 +325,7 @@
       if (prodChip === 'sold') return !!p.sold;
       if (prodChip === 'pending') return !p.sold;
       if (prodChip === 'nophoto') return !p.photo_url;
+      if (prodChip === 'noprecio') return !p.sale_lps;
       return true;
     });
   }
@@ -644,6 +651,18 @@
     } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
   });
 
+  /* ---------- Gastos: filtro "Sin registrar" ---------- */
+  var expChip = 'all'; // all | zero
+
+  function setExpChip(f) {
+    expChip = f;
+    var chips = $('exp-filter-chips');
+    if (chips) chips.querySelectorAll('.pchip').forEach(function (c) {
+      c.classList.toggle('active', c.getAttribute('data-f') === f);
+    });
+    loadExpenses();
+  }
+
   async function loadExpenses() {
     var box = $('expense-list');
     try {
@@ -651,6 +670,11 @@
       if (productFilter !== 'all') {
         list = list.filter(function (e) {
           return productFilter === 'none' ? !e.caja_id : String(e.caja_id) === String(productFilter);
+        });
+      }
+      if (expChip === 'zero') {
+        list = list.filter(function (e) {
+          return !(Number(e.amount_usd) || 0) && !(Number(e.amount_lps) || 0);
         });
       }
       if (!list.length) {
@@ -768,8 +792,6 @@
   });
 
   /* ---------- Gráficas (SVG puro, sin dependencias) ---------- */
-  var PIE_COLORS = ['#0a2a5e', '#c1121f', '#f0b429', '#1e4fa3', '#e05252',
-                    '#f5c95c', '#06204a', '#8f0d16', '#b98a1f'];
 
   function legendHtml(rows) {
     return rows.map(function (r) {
@@ -808,40 +830,6 @@
     ]);
   }
 
-  function piePath(cx, cy, r, a0, a1) {
-    var x0 = (cx + r * Math.cos(a0)).toFixed(2), y0 = (cy + r * Math.sin(a0)).toFixed(2);
-    var x1 = (cx + r * Math.cos(a1)).toFixed(2), y1 = (cy + r * Math.sin(a1)).toFixed(2);
-    var large = (a1 - a0) > Math.PI ? 1 : 0;
-    return 'M' + cx + ',' + cy + ' L' + x0 + ',' + y0 +
-      ' A' + r + ',' + r + ' 0 ' + large + ' 1 ' + x1 + ',' + y1 + ' Z';
-  }
-
-  function drawPie(s) {
-    var box = $('chart-pie'), leg = $('legend-pie');
-    var items = (s.by_product || []).filter(function (p) { return p.ganancia_libre > 0; });
-    var total = items.reduce(function (a, p) { return a + p.ganancia_libre; }, 0);
-    if (!items.length || total <= 0) {
-      box.innerHTML = '<p class="hint">Registra productos con precio de venta para ver la ganancia por producto.</p>';
-      leg.innerHTML = '';
-      return;
-    }
-    var top = items.slice(0, 8);
-    var rest = items.slice(8).reduce(function (a, p) { return a + p.ganancia_libre; }, 0);
-    var slices = top.map(function (p) { return { label: p.name, value: p.ganancia_libre }; });
-    if (rest > 0) slices.push({ label: 'Otros', value: rest });
-    var a = -Math.PI / 2, cx = 85, cy = 85, r = 72;
-    var paths = slices.map(function (sl, i) {
-      var a1 = a + sl.value / total * 2 * Math.PI;
-      var d = piePath(cx, cy, r, a, a1);
-      a = a1;
-      return '<path d="' + d + '" fill="' + PIE_COLORS[i % PIE_COLORS.length] + '"/>';
-    }).join('');
-    box.innerHTML = '<svg viewBox="0 0 170 170" class="pie" role="img" aria-label="Ganancia libre por producto">' + paths + '</svg>';
-    leg.innerHTML = legendHtml(slices.map(function (sl, i) {
-      return { color: PIE_COLORS[i % PIE_COLORS.length], label: sl.label, amount: fmtL(sl.value), pct: Math.round(sl.value / total * 100) };
-    }));
-  }
-
   async function loadSummary() {
     var box = $('summary-cards');
     try {
@@ -867,7 +855,6 @@
         profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45)) +
         profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55));
       drawDonut(s);
-      drawPie(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
     loadPending();
@@ -924,8 +911,8 @@
       var p = await api(url);
       var rows = [
         { n: p.sin_foto, label: 'productos sin foto', tab: 'productos', chip: 'nophoto' },
-        { n: p.sin_precio, label: 'productos sin precio de venta', tab: 'productos', chip: null },
-        { n: p.gastos_pendientes, label: 'gastos sin registrar', tab: 'gastos', chip: null }
+        { n: p.sin_precio, label: 'productos sin precio de venta', tab: 'productos', chip: 'noprecio' },
+        { n: p.gastos_pendientes, label: 'gastos sin registrar', tab: 'gastos', expZero: true }
       ].filter(function (r) { return r.n > 0; });
       if (!rows.length) {
         box.innerHTML = '<p class="hint">✅ Todo completo, sin pendientes.</p>';
@@ -941,7 +928,8 @@
       box.querySelectorAll('.pend-row').forEach(function (b) {
         b.addEventListener('click', function () {
           var r = rows[Number(b.getAttribute('data-i'))];
-          if (r.chip) setProdChip(r.chip);
+          if (r.expZero) setExpChip('zero');
+          else if (r.chip) { setExpChip('all'); setProdChip(r.chip); }
           switchTab(r.tab);
         });
       });

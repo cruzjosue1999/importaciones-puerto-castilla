@@ -40,6 +40,7 @@
         <button type="button" class="pchip" data-f="sold">Vendidos</button>
         <button type="button" class="pchip" data-f="pending">Pendientes</button>
         <button type="button" class="pchip" data-f="nophoto">Sin foto</button>
+        <button type="button" class="pchip" data-f="noprecio">Sin precio</button>
       </div>
     </div>
     <div id="sales-strip" class="sales-strip hidden"></div>
@@ -118,6 +119,10 @@
       </div>
     </div>
     <div id="expense-chips" class="caja-boxes"></div>
+    <div id="exp-filter-chips" class="pchip-row" style="margin-bottom:10px;">
+      <button type="button" class="pchip active" data-f="all">Todos</button>
+      <button type="button" class="pchip" data-f="zero">Sin registrar</button>
+    </div>
     <div id="expense-list" class="cards"></div>
     <form id="add-expense-form" class="form">
       <h3>Agregar gasto</h3>
@@ -153,9 +158,6 @@
     <h3>Inversión vs ganancia potencial</h3>
     <div id="chart-donut" class="chart"></div>
     <div id="legend-donut" class="legend"></div>
-    <h3>Ganancia potencial por producto</h3>
-    <div id="chart-pie" class="chart"></div>
-    <div id="legend-pie" class="legend"></div>
     <div id="compare-box" class="hidden">
       <h3>Comparar cajas</h3>
       <div id="compare-bars" class="compare-bars"></div>
@@ -295,7 +297,7 @@
 
 <div id="notice" class="notice hidden"></div>
 
-<script src="/static/app.js?v=8"></script>
+<script src="/static/app.js?v=9"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
