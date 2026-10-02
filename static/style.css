@@ -90,6 +90,12 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 .btn.danger { color: var(--red); border-color: #f0b4b8; }
 .btn:active { transform: scale(.98); }
 .btn.sold-btn { color: #15803d; border-color: #bbf7d0; background: #f0fdf4; font-weight: 700; }
+.btn.toggled { background: var(--navy); border-color: var(--navy); color: #fff; font-weight: 700; }
+
+/* ---- Fila de acciones deslizable ---- */
+.actions-row { display: flex; gap: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 10px 2px 4px; scrollbar-width: none; }
+.actions-row::-webkit-scrollbar { display: none; }
+.actions-row .btn { flex: 0 0 auto; white-space: nowrap; margin: 0; }
 
 /* ---- Buscador de productos ---- */
 #prod-searchbar { margin-bottom: 10px; }

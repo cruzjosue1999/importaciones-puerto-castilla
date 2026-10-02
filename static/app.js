@@ -101,6 +101,55 @@
   var unsoldAllBtn = $('unsold-all-btn');
   if (unsoldAllBtn) unsoldAllBtn.addEventListener('click', unmarkAllSold);
 
+  /* ---------- Acciones sobre la caja seleccionada (toda la caja) ---------- */
+  function selectedCaja() {
+    if (productFilter === 'all' || productFilter === 'none') return null;
+    return cajaById(productFilter);
+  }
+  function needCaja() {
+    var c = selectedCaja();
+    if (!c) notice('Primero elige una inversión tocando su caja.');
+    return c;
+  }
+  async function toggleExenta(flag) {
+    var c = needCaja(); if (!c) return;
+    var body = { name: c.name };
+    body[flag] = c[flag] ? 0 : 1;
+    try {
+      await api('/api/cajas/' + c.id, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      notice('✅ ' + c.name + (body[flag] ? ': exenta.' : ': ya no exenta.'));
+      await loadCajas();
+      refreshExentaBtns();
+      loadProducts();
+      loadExpenses();
+    } catch (e) { notice(e.message, true); }
+  }
+  function refreshExentaBtns() {
+    var c = selectedCaja();
+    var bf = $('exenta-fotos-btn'), bt = $('exenta-tax-btn');
+    if (bf) bf.classList.toggle('toggled', !!(c && c.exenta_fotos));
+    if (bt) bt.classList.toggle('toggled', !!(c && c.exenta_tax));
+  }
+  $('exenta-fotos-btn').addEventListener('click', function () { toggleExenta('exenta_fotos'); });
+  $('exenta-tax-btn').addEventListener('click', function () { toggleExenta('exenta_tax'); });
+  $('rename-caja-btn').addEventListener('click', function () {
+    var c = needCaja(); if (!c) return;
+    invEditId = c.id;
+    $('inv-name').value = c.name;
+    $('inv-error').classList.add('hidden');
+    $('inv-save').textContent = 'Guardar cambios';
+    $('inv-create').classList.remove('hidden');
+    $('inv-name').focus();
+    window.scrollTo(0, 0);
+  });
+  $('del-caja-btn').addEventListener('click', function () {
+    var c = needCaja(); if (!c) return;
+    delCaja(c.id);
+  });
+
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
   var productFilter = 'all'; // 'all' | 'none' | <id>
@@ -190,6 +239,7 @@
       var opt = ac.querySelector('option[value="' + productFilter + '"]');
       if (opt) ac.value = productFilter;
     }
+    refreshExentaBtns();
   }
 
   async function loadCajas() {
@@ -197,47 +247,7 @@
       cajasCache = await api('/api/cajas');
       renderChips();
       refreshCajaSelects(true);
-      renderCajaList();
     } catch (e) { /* sin cajas no se bloquea nada */ }
-  }
-
-  function renderCajaList() {
-    var box = $('caja-list');
-    if (!box) return;
-    box.innerHTML = cajasCache.map(function (c) {
-      return '<div class="caja-item"><span class="caja-name">' + escapeHtml(c.name) + '</span>' +
-        '<span class="caja-count">' + c.n_products + ' prod.</span>' +
-        '<button class="btn caja-edit" data-id="' + c.id + '">✏️</button>' +
-        '<button class="btn danger caja-del" data-id="' + c.id + '">🗑️</button></div>';
-    }).join('') || '<p class="hint">Aún no hay inversiones. Toca &laquo;＋ Crear inversión&raquo; para empezar.</p>';
-    box.querySelectorAll('.caja-edit').forEach(function (b) {
-      b.addEventListener('click', function () { startEditCaja(Number(b.getAttribute('data-id'))); });
-    });
-    box.querySelectorAll('.caja-del').forEach(function (b) {
-      b.addEventListener('click', function () { delCaja(Number(b.getAttribute('data-id'))); });
-    });
-  }
-
-  function resetCajaForm() {
-    $('caja-edit-id').value = '';
-    $('caja-name').value = '';
-    $('caja-exenta-fotos').checked = false;
-    $('caja-exenta-tax').checked = false;
-    $('caja-error').classList.add('hidden');
-    $('caja-save').textContent = 'Guardar inversión';
-    $('caja-cancel').classList.add('hidden');
-  }
-
-  function startEditCaja(id) {
-    var c = cajasCache.find(function (x) { return x.id === id; });
-    if (!c) return;
-    $('caja-edit-id').value = c.id;
-    $('caja-name').value = c.name;
-    $('caja-exenta-fotos').checked = !!c.exenta_fotos;
-    $('caja-exenta-tax').checked = !!c.exenta_tax;
-    $('caja-save').textContent = 'Guardar cambios';
-    $('caja-cancel').classList.remove('hidden');
-    $('caja-name').focus();
   }
 
   async function delCaja(id) {
@@ -699,64 +709,45 @@
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
 
-  /* ---------- Gastos ---------- */
-  $('caja-save').addEventListener('click', async function () {
-    var err = $('caja-error');
-    err.classList.add('hidden');
-    var name = $('caja-name').value.trim();
-    var editId = $('caja-edit-id').value;
-    if (!name) { err.textContent = 'El nombre de la inversión es obligatorio.'; err.classList.remove('hidden'); return; }
-    try {
-      var flags = {
-        exenta_fotos: $('caja-exenta-fotos').checked ? 1 : 0,
-        exenta_tax: $('caja-exenta-tax').checked ? 1 : 0
-      };
-      if (editId) {
-        await api('/api/cajas/' + editId, {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, exenta_fotos: flags.exenta_fotos, exenta_tax: flags.exenta_tax })
-        });
-        notice('✅ Inversión actualizada.');
-      } else {
-        var nc = await api('/api/cajas', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name, exenta_fotos: flags.exenta_fotos, exenta_tax: flags.exenta_tax })
-        });
-        notice('✅ Inversión creada.');
-        productFilter = String(nc.id);
-      }
-      resetCajaForm();
-      await loadCajas();
-      followInvestment(productFilter);
-      loadProducts();
-      loadExpenses();
-    } catch (e) { err.textContent = e.message; err.classList.remove('hidden'); }
-  });
-  $('caja-cancel').addEventListener('click', resetCajaForm);
-
-  /* Crear inversión rápido desde la pestaña Productos */
-  $('btn-new-inversion').addEventListener('click', function () {
-    var f = $('inv-create');
-    f.classList.toggle('hidden');
-    if (!f.classList.contains('hidden')) $('inv-name').focus();
-  });
-  $('inv-cancel').addEventListener('click', function () {
+  /* Crear / renombrar inversión desde la pestaña Productos */
+  var invEditId = null;
+  function resetInvForm() {
+    invEditId = null;
     $('inv-create').classList.add('hidden');
     $('inv-name').value = '';
     $('inv-error').classList.add('hidden');
+    $('inv-save').textContent = 'Crear';
+  }
+  $('btn-new-inversion').addEventListener('click', function () {
+    resetInvForm();
+    $('inv-create').classList.remove('hidden');
+    $('inv-name').focus();
   });
+  $('inv-cancel').addEventListener('click', resetInvForm);
   $('inv-save').addEventListener('click', async function () {
     var err = $('inv-error');
     err.classList.add('hidden');
     var name = $('inv-name').value.trim();
     if (!name) { err.textContent = 'Ponle un nombre a la inversión.'; err.classList.remove('hidden'); return; }
     try {
+      if (invEditId) {
+        await api('/api/cajas/' + invEditId, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name })
+        });
+        notice('✅ Inversión actualizada.');
+        resetInvForm();
+        await loadCajas();
+        followInvestment(productFilter);
+        loadProducts();
+        loadExpenses();
+        return;
+      }
       var c = await api('/api/cajas', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name })
       });
-      $('inv-create').classList.add('hidden');
-      $('inv-name').value = '';
+      resetInvForm();
       notice('✅ Inversión creada.');
       productFilter = String(c.id);
       await loadCajas();
