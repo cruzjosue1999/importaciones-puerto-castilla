@@ -798,6 +798,30 @@ def api_mark_sold_all():
     return jsonify({"ok": True, "marcados": marcados})
 
 
+@app.route("/api/products/lost_all", methods=["POST"])
+def api_mark_lost_all():
+    """Marca como pérdida todos los ids recibidos: {"ids": [1,2,3]}.
+
+    La pérdida es excluyente con la venta: también quita el vendido.
+    Devuelve cuántos marcó.
+    """
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids") or []
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "marcados": 0})
+    marcados = 0
+    for j in range(0, len(ids), 500):
+        lote = ids[j:j + 500]
+        ph = ",".join("?" for _ in lote)
+        cur = db.execute(
+            "UPDATE products SET lost=1, sold=0 WHERE id IN (%s)" % ph, lote)
+        marcados += cur.rowcount
+    db.commit()
+    return jsonify({"ok": True, "marcados": marcados})
+
+
 @app.route("/api/pending", methods=["GET"])
 def api_pending():
     """Conteo de pendientes: sin foto, sin precio de venta y gastos en $0."""
@@ -814,7 +838,8 @@ def api_pending():
         " %s p.photo IS NULL AND COALESCE(c.exenta_fotos, 0)=0" % and_pf, pp
     ).fetchone()["n"]
     sin_precio = db.execute(
-        "SELECT COUNT(*) AS n FROM products p %s (p.sale_lps IS NULL OR p.sale_lps=0)" % and_pf, pp
+        "SELECT COUNT(*) AS n FROM products p %s (p.sale_lps IS NULL OR p.sale_lps=0)"
+        " AND COALESCE(p.lost, 0)=0" % and_pf, pp
     ).fetchone()["n"]
     ef = "WHERE e.caja_id=?" if caja_id is not None else ""
     epp = [caja_id] if caja_id is not None else []

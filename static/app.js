@@ -100,6 +100,8 @@
   if (soldAllBtn) soldAllBtn.addEventListener('click', markAllSold);
   var unsoldAllBtn = $('unsold-all-btn');
   if (unsoldAllBtn) unsoldAllBtn.addEventListener('click', unmarkAllSold);
+  var lostAllBtn = $('lost-all-btn');
+  if (lostAllBtn) lostAllBtn.addEventListener('click', markAllLost);
 
   /* ---------- Acciones sobre la caja seleccionada (toda la caja) ---------- */
   function selectedCaja() {
@@ -364,7 +366,7 @@
       if (prodChip === 'sold') return !!p.sold;
       if (prodChip === 'pending') return !p.sold && !p.lost;
       if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
-      if (prodChip === 'noprecio') return !p.sale_lps;
+      if (prodChip === 'noprecio') return !p.sale_lps && !p.lost;
       if (prodChip === 'lost') return !!p.lost;
       return true;
     });
@@ -537,6 +539,26 @@
       notice('↩ ' + (r.marcados || marcados.length) + ' vueltos a pendiente.');
     } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
   }
+  /* Marca como pérdida todos los productos visibles (respeta la inversión,
+     el buscador y los filtros). La pérdida saca al producto de "Sin precio". */
+  async function markAllLost() {
+    var visible = filteredProducts();
+    var pendientes = visible.filter(function (p) { return !p.sold && !p.lost; });
+    if (!pendientes.length) {
+      notice(visible.length ? 'Ya todos están vendidos o en pérdida.' : 'No hay productos a la vista.');
+      return;
+    }
+    if (!window.confirm('¿Marcar ' + pendientes.length + ' producto(s) como pérdida?')) return;
+    try {
+      var r = await api('/api/products/lost_all', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: pendientes.map(function (p) { return p.id; }) })
+      });
+      notice('✅ ' + (r.marcados || pendientes.length) + ' marcados como pérdida.');
+      loadProducts();
+    } catch (e) { notice('No se pudo marcar: ' + e.message, true); }
+  }
+
   /* Marca como vendidos todos los productos visibles (respeta la inversión,
      el buscador y los filtros). El botón manual de cada tarjeta se conserva. */
   async function markAllSold() {
