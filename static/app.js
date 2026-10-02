@@ -390,7 +390,35 @@
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sold: toSold })
       });
-      await loadProducts();
+      // Actualizar la caché y la tarjeta en su lugar, sin reconstruir
+      // la lista (para no cerrar los acordeones abiertos).
+      var p = null;
+      for (var i = 0; i < productListCache.length; i++) {
+        if (productListCache[i].id === id) { p = productListCache[i]; break; }
+      }
+      if (p) p.sold = toSold;
+      renderSalesStrip();
+      var card = document.querySelector('article.card[data-id="' + id + '"]');
+      if (card) {
+        var stillVisible = filteredProducts().some(function (x) { return x.id === id; });
+        if (!stillVisible) {
+          card.parentNode.removeChild(card);
+        } else {
+          var btn = card.querySelector('.sold-btn');
+          btn.setAttribute('data-sold', toSold ? '1' : '0');
+          btn.textContent = toSold ? '↩ Quitar vendido' : '✓ Marcar como vendido';
+          var title = card.querySelector('.card-toggle-title');
+          var badge = title.querySelector('.sold-badge');
+          if (toSold && !badge) {
+            var s = document.createElement('span');
+            s.className = 'sold-badge';
+            s.textContent = 'VENDIDO';
+            title.appendChild(s);
+          } else if (!toSold && badge) {
+            title.removeChild(badge);
+          }
+        }
+      }
       notice(toSold ? '✅ Marcado como vendido.' : '↩ Vuelto a pendiente.');
     } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
   }
