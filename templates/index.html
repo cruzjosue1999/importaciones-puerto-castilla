@@ -43,7 +43,8 @@
         <button type="button" class="pchip" data-f="noprecio">Sin precio</button>
         <button type="button" class="pchip" data-f="lost">Pérdidas</button>
       </div>
-      <button type="button" id="sold-all-btn" class="btn" style="margin:8px 0 0;">✅ Marcar todos como vendidos</button>
+      <button type="button" id="sold-all-btn" class="btn" style="margin:8px 8px 0 0;">✅ Marcar todos como vendidos</button>
+      <button type="button" id="unsold-all-btn" class="btn" style="margin:8px 0 0;">↩ Desmarcar todos</button>
     </div>
     <div id="sales-strip" class="sales-strip hidden"></div>
     <div id="product-list" class="cards"></div>
@@ -113,6 +114,12 @@
       <div class="field">
         <label for="caja-name">Nombre de la inversión</label>
         <input type="text" id="caja-name" maxlength="80" placeholder="Ej: Inversión de enero">
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="caja-exenta-fotos"> 📷 Exenta de fotos (sus productos no cuentan como pendientes de foto)</label>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" id="caja-exenta-tax"> 🧾 Tax exento (su Tax en $0 no cuenta como pendiente)</label>
       </div>
       <p id="caja-error" class="error hidden"></p>
       <div class="modal-actions">
@@ -299,7 +306,7 @@
 
 <div id="notice" class="notice hidden"></div>
 
-<script src="/static/app.js?v=11"></script>
+<script src="/static/app.js?v=12"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
 if ('serviceWorker' in navigator) {

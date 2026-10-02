@@ -98,6 +98,8 @@
   }
   var soldAllBtn = $('sold-all-btn');
   if (soldAllBtn) soldAllBtn.addEventListener('click', markAllSold);
+  var unsoldAllBtn = $('unsold-all-btn');
+  if (unsoldAllBtn) unsoldAllBtn.addEventListener('click', unmarkAllSold);
 
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
@@ -219,6 +221,8 @@
   function resetCajaForm() {
     $('caja-edit-id').value = '';
     $('caja-name').value = '';
+    $('caja-exenta-fotos').checked = false;
+    $('caja-exenta-tax').checked = false;
     $('caja-error').classList.add('hidden');
     $('caja-save').textContent = 'Guardar inversión';
     $('caja-cancel').classList.add('hidden');
@@ -229,6 +233,8 @@
     if (!c) return;
     $('caja-edit-id').value = c.id;
     $('caja-name').value = c.name;
+    $('caja-exenta-fotos').checked = !!c.exenta_fotos;
+    $('caja-exenta-tax').checked = !!c.exenta_tax;
     $('caja-save').textContent = 'Guardar cambios';
     $('caja-cancel').classList.remove('hidden');
     $('caja-name').focus();
@@ -247,7 +253,18 @@
     } catch (e) { notice(e.message, true); }
   }
 
-  /* ---------- Productos ---------- */
+  /* ---------- Cajas: exenciones ---------- */
+  function cajaById(id) {
+    for (var i = 0; i < cajasCache.length; i++) {
+      if (String(cajasCache[i].id) === String(id)) return cajasCache[i];
+    }
+    return null;
+  }
+  function cajaExenta(cajaId, flag) {
+    if (cajaId == null || cajaId === 'none') return false;
+    var c = cajaById(cajaId);
+    return !!(c && c[flag]);
+  }
   function productCard(p) {
     var photo = p.photo_url
       ? '<img class="card-photo" src="' + escapeHtml(p.photo_url) + '" alt="Foto de ' + escapeHtml(p.description) + '" loading="lazy">'
@@ -330,7 +347,7 @@
       if (q && String(p.description || '').toLowerCase().indexOf(q) < 0) return false;
       if (prodChip === 'sold') return !!p.sold;
       if (prodChip === 'pending') return !p.sold && !p.lost;
-      if (prodChip === 'nophoto') return !p.photo_url;
+      if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
       if (prodChip === 'noprecio') return !p.sale_lps;
       if (prodChip === 'lost') return !!p.lost;
       return true;
@@ -485,6 +502,25 @@
     } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
   }
 
+  /* Desmarca como vendidos todos los productos visibles (respeta la
+     inversión, el buscador y los filtros). */
+  async function unmarkAllSold() {
+    var visible = filteredProducts();
+    var marcados = visible.filter(function (p) { return p.sold; });
+    if (!marcados.length) {
+      notice(visible.length ? 'Ninguno está marcado como vendido.' : 'No hay productos a la vista.');
+      return;
+    }
+    if (!window.confirm('¿Quitar la marca de vendido a ' + marcados.length + ' producto(s)?')) return;
+    try {
+      var r = await api('/api/products/sold_all', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: marcados.map(function (p) { return p.id; }), sold: false })
+      });
+      marcados.forEach(function (p) { p.sold = false; refreshCardStatus(p.id); });
+      notice('↩ ' + (r.marcados || marcados.length) + ' vueltos a pendiente.');
+    } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
+  }
   /* Marca como vendidos todos los productos visibles (respeta la inversión,
      el buscador y los filtros). El botón manual de cada tarjeta se conserva. */
   async function markAllSold() {
@@ -671,16 +707,20 @@
     var editId = $('caja-edit-id').value;
     if (!name) { err.textContent = 'El nombre de la inversión es obligatorio.'; err.classList.remove('hidden'); return; }
     try {
+      var flags = {
+        exenta_fotos: $('caja-exenta-fotos').checked ? 1 : 0,
+        exenta_tax: $('caja-exenta-tax').checked ? 1 : 0
+      };
       if (editId) {
         await api('/api/cajas/' + editId, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name })
+          body: JSON.stringify({ name: name, exenta_fotos: flags.exenta_fotos, exenta_tax: flags.exenta_tax })
         });
         notice('✅ Inversión actualizada.');
       } else {
         var nc = await api('/api/cajas', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name })
+          body: JSON.stringify({ name: name, exenta_fotos: flags.exenta_fotos, exenta_tax: flags.exenta_tax })
         });
         notice('✅ Inversión creada.');
         productFilter = String(nc.id);
@@ -757,7 +797,11 @@
       }
       if (expChip === 'zero') {
         list = list.filter(function (e) {
-          return !(Number(e.amount_usd) || 0) && !(Number(e.amount_lps) || 0);
+          var isZero = !(Number(e.amount_usd) || 0) && !(Number(e.amount_lps) || 0);
+          if (!isZero) return false;
+          // El Tax de una caja exenta no cuenta como pendiente.
+          if (/^tax$/i.test((e.name || '').trim()) && cajaExenta(e.caja_id, 'exenta_tax')) return false;
+          return true;
         });
       }
       if (!list.length) {
@@ -790,8 +834,10 @@
       }
       box.innerHTML = list.map(function (e) {
         var meta = e.caja_name ? '<p class="card-meta">📁 ' + escapeHtml(e.caja_name) + '</p>' : '';
+        var exBadge = (/^tax$/i.test((e.name || '').trim()) && cajaExenta(e.caja_id, 'exenta_tax'))
+          ? ' <span class="sold-badge">EXENTO</span>' : '';
         return '<article class="card"><div class="card-body">' +
-          '<h3 class="card-title">' + escapeHtml(e.name) + '</h3>' + meta +
+          '<h3 class="card-title">' + escapeHtml(e.name) + exBadge + '</h3>' + meta +
           '<div class="nums">' +
           numRow('Monto en $', fmtD(e.amount_usd)) +
           numRow('Monto en LPS', fmtL(e.amount_lps)) +
