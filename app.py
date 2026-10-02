@@ -273,6 +273,8 @@ def init_db():
         db.execute("ALTER TABLE products ADD COLUMN size_shirts TEXT DEFAULT ''")
     if "quantity" not in pcols:
         db.execute("ALTER TABLE products ADD COLUMN quantity REAL NOT NULL DEFAULT 1")
+    if "sold" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN sold INTEGER NOT NULL DEFAULT 0")
     ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
     if "caja_id" not in ecols:
         db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
@@ -566,6 +568,7 @@ def _product_json(row, caja_name=None):
         "size_shoes": row["size_shoes"] or "",
         "size_shirts": row["size_shirts"] or "",
         "quantity": qty,
+        "sold": bool(row["sold"]) if "sold" in row.keys() else False,
     }
 
 
@@ -582,7 +585,7 @@ def api_list_products():
     caja = request.args.get("caja_id", "")
     sql = (
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
     )
     params: list = []
@@ -626,7 +629,7 @@ def api_create_product():
     db.commit()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
@@ -638,7 +641,7 @@ def api_get_product(pid):
     db = get_db()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (pid,)
     ).fetchone()
@@ -706,6 +709,47 @@ def api_delete_product(pid):
     db.execute("DELETE FROM products WHERE id=?", (pid,))
     db.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/products/<int:pid>/sold", methods=["PUT"])
+def api_mark_sold(pid):
+    """Marca o desmarca un producto como vendido: {"sold": true|false}."""
+    db = get_db()
+    row = db.execute("SELECT id FROM products WHERE id=?", (pid,)).fetchone()
+    if not row:
+        return jsonify({"error": "Producto no encontrado."}), 404
+    data = request.get_json(silent=True) or {}
+    sold = 1 if data.get("sold") in (True, 1, "1", "true", "sí", "si") else 0
+    db.execute("UPDATE products SET sold=? WHERE id=?", (sold, pid))
+    db.commit()
+    return jsonify({"ok": True, "sold": bool(sold)})
+
+
+@app.route("/api/pending", methods=["GET"])
+def api_pending():
+    """Conteo de pendientes: sin foto, sin precio de venta y gastos en $0."""
+    db = get_db()
+    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    if err:
+        return jsonify({"error": err}), 400
+    pf = "WHERE p.caja_id=?" if caja_id is not None else ""
+    pp = [caja_id] if caja_id is not None else []
+    and_pf = (pf + " AND") if pf else "WHERE"
+    sin_foto = db.execute(
+        "SELECT COUNT(*) AS n FROM products p %s p.photo IS NULL" % and_pf, pp
+    ).fetchone()["n"]
+    sin_precio = db.execute(
+        "SELECT COUNT(*) AS n FROM products p %s (p.sale_lps IS NULL OR p.sale_lps=0)" % and_pf, pp
+    ).fetchone()["n"]
+    ef = "WHERE e.caja_id=?" if caja_id is not None else ""
+    epp = [caja_id] if caja_id is not None else []
+    and_ef = (ef + " AND") if ef else "WHERE"
+    gastos = db.execute(
+        "SELECT COUNT(*) AS n FROM expenses e %s "
+        "((e.amount_usd IS NULL OR e.amount_usd=0) AND (e.amount_lps IS NULL OR e.amount_lps=0))" % and_ef, epp
+    ).fetchone()["n"]
+    return jsonify({"sin_foto": sin_foto, "sin_precio": sin_precio,
+                    "gastos_pendientes": gastos})
 
 
 # ---------------- API: fotos ----------------

@@ -7,7 +7,7 @@
 <link rel="manifest" href="/manifest.json">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#0a2a5e">
-<link rel="stylesheet" href="/static/style.css?v=6">
+<link rel="stylesheet" href="/static/style.css?v=7">
 </head>
 <body>
 
@@ -33,6 +33,16 @@
       </div>
     </div>
     <div id="caja-chips" class="caja-boxes"></div>
+    <div id="prod-searchbar">
+      <input id="prod-search" type="search" placeholder="🔍 Buscar producto..." autocomplete="off">
+      <div id="prod-chips" class="pchip-row">
+        <button type="button" class="pchip active" data-f="all">Todos</button>
+        <button type="button" class="pchip" data-f="sold">Vendidos</button>
+        <button type="button" class="pchip" data-f="pending">Pendientes</button>
+        <button type="button" class="pchip" data-f="nophoto">Sin foto</button>
+      </div>
+    </div>
+    <div id="sales-strip" class="sales-strip hidden"></div>
     <div id="product-list" class="cards"></div>
     <p id="no-products" class="hint hidden">Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.</p>
   </section>
@@ -146,6 +156,12 @@
     <h3>Ganancia potencial por producto</h3>
     <div id="chart-pie" class="chart"></div>
     <div id="legend-pie" class="legend"></div>
+    <div id="compare-box" class="hidden">
+      <h3>Comparar cajas</h3>
+      <div id="compare-bars" class="compare-bars"></div>
+    </div>
+    <h3>Pendientes</h3>
+    <div id="pending-rows" class="pending-rows"></div>
   </section>
 
   <!-- Pestaña: Hoja -->
@@ -279,7 +295,7 @@
 
 <div id="notice" class="notice hidden"></div>
 
-<script src="/static/app.js?v=6"></script>
+<script src="/static/app.js?v=7"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
