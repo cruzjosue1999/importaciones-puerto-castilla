@@ -661,32 +661,151 @@
   var addPhoto = wirePhotoPicker('add-photo', 'photo-preview', 'photo-preview-img');
   var editPhoto = wirePhotoPicker('edit-photo', 'edit-photo-preview', 'edit-photo-preview-img');
 
-  /* ---------- Agregar producto ---------- */
+  /* ---------- Agregar producto: uno o varios del mismo diseño ---------- */
+  var addMulti = false;
+
+  function updateSaveLabel() {
+    var btn = $('btn-save');
+    if (!btn) return;
+    if (addMulti) {
+      var n = $('variant-list') ? $('variant-list').children.length : 0;
+      btn.textContent = 'Guardar ' + n + ' producto' + (n === 1 ? '' : 's');
+    } else {
+      btn.textContent = 'Guardar producto';
+    }
+  }
+
+  function addVariantRow() {
+    var div = document.createElement('div');
+    div.className = 'variant-row';
+    div.innerHTML =
+      '<input type="text" class="v-color" maxlength="40" placeholder="Color">' +
+      '<input type="text" class="v-shoes" maxlength="40" placeholder="Talla zap.">' +
+      '<input type="text" class="v-shirts" maxlength="40" placeholder="Talla cam.">' +
+      '<input type="text" class="v-measures" maxlength="60" placeholder="Medidas">' +
+      '<input type="number" class="v-qty" min="0" step="1" inputmode="numeric" placeholder="Cant." value="1">' +
+      '<button type="button" class="v-del btn">✕</button>';
+    div.querySelector('.v-del').addEventListener('click', function () {
+      div.parentNode.removeChild(div);
+      updateSaveLabel();
+    });
+    $('variant-list').appendChild(div);
+    updateSaveLabel();
+  }
+
+  document.querySelectorAll('#add-mode-chips .pchip').forEach(function (c) {
+    c.addEventListener('click', function () {
+      document.querySelectorAll('#add-mode-chips .pchip').forEach(function (x) { x.classList.remove('active'); });
+      c.classList.add('active');
+      addMulti = c.getAttribute('data-m') === 'multi';
+      $('variant-block').classList.toggle('hidden', !addMulti);
+      $('add-single-sizes').classList.toggle('hidden', addMulti);
+      if (addMulti && !$('variant-list').children.length) addVariantRow();
+      updateSaveLabel();
+    });
+  });
+  var variantAddBtn = $('variant-add');
+  if (variantAddBtn) variantAddBtn.addEventListener('click', addVariantRow);
+
+  /* Sube la foto de #add-photo y devuelve un upload_id fresco.
+     (El upload_id se borra al usarse una vez, así que en modo multi
+     hay que subir la foto de nuevo por cada variante.) */
+  async function uploadFreshPhoto() {
+    var input = $('add-photo');
+    var file = input && input.files ? input.files[0] : null;
+    if (!file) return '';
+    var fd = new FormData();
+    fd.append('file', file);
+    var r = await api('/api/upload', { method: 'POST', body: fd });
+    return r.upload_id || '';
+  }
+
   $('add-form').addEventListener('submit', async function (e) {
     e.preventDefault();
     var err = $('add-error');
     err.classList.add('hidden');
-    var body = {
+    var common = {
       description: $('add-desc').value.trim(),
       caja_id: $('add-caja').value || undefined,
-      size_shoes: $('add-size-shoes').value.trim(),
-      size_shirts: $('add-size-shirts').value.trim(),
-      quantity: $('add-quantity').value,
       purchase_usd: $('add-usd').value,
       cost_lps: $('add-cost').value,
-      sale_lps: $('add-sale').value,
-      upload_id: addPhoto.getUploadId() || undefined
+      sale_lps: $('add-sale').value
     };
-    if (!body.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
+    if (!common.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
+
+    if (!addMulti) {
+      // ---- modo uno: lógica original intacta ----
+      var body = {
+        description: common.description,
+        caja_id: common.caja_id,
+        size_shoes: $('add-size-shoes').value.trim(),
+        size_shirts: $('add-size-shirts').value.trim(),
+        quantity: $('add-quantity').value,
+        purchase_usd: common.purchase_usd,
+        cost_lps: common.cost_lps,
+        sale_lps: common.sale_lps,
+        upload_id: addPhoto.getUploadId() || undefined
+      };
+      try {
+        await api('/api/products', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        $('add-form').reset(); addPhoto.reset();
+        notice('✅ Producto guardado.');
+        loadProducts();
+      } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
+      return;
+    }
+
+    // ---- modo multi: un producto por variante ----
+    var variants = Array.prototype.map.call($('variant-list').children, function (div) {
+      return {
+        color: div.querySelector('.v-color').value.trim(),
+        shoes: div.querySelector('.v-shoes').value.trim(),
+        shirts: div.querySelector('.v-shirts').value.trim(),
+        measures: div.querySelector('.v-measures').value.trim(),
+        qty: div.querySelector('.v-qty').value || 1
+      };
+    }).filter(function (v) { return v.color || v.shoes || v.shirts || v.measures; });
+    if (!variants.length) {
+      err.textContent = 'Agrega al menos una variante con color, talla o medidas.';
+      err.classList.remove('hidden');
+      return;
+    }
+    var saved = 0;
     try {
-      await api('/api/products', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
+      for (var i = 0; i < variants.length; i++) {
+        var v = variants[i];
+        var desc = common.description +
+          (v.color ? ' ' + v.color : '') +
+          (v.measures ? ' ' + v.measures : '');
+        var uploadId = await uploadFreshPhoto();
+        await api('/api/products', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            description: desc,
+            caja_id: common.caja_id,
+            size_shoes: v.shoes,
+            size_shirts: v.shirts,
+            quantity: v.qty,
+            purchase_usd: common.purchase_usd,
+            cost_lps: common.cost_lps,
+            sale_lps: common.sale_lps,
+            upload_id: uploadId || undefined
+          })
+        });
+        saved++;
+      }
       $('add-form').reset(); addPhoto.reset();
-      notice('✅ Producto guardado.');
+      $('variant-list').innerHTML = '';
+      addVariantRow();
+      notice('✅ ' + saved + ' productos guardados.');
       loadProducts();
-    } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
+    } catch (e2) {
+      err.textContent = 'Se guardaron ' + saved + ' de ' + variants.length + ': ' + e2.message;
+      err.classList.remove('hidden');
+    }
   });
 
   /* ---------- Editar producto ---------- */
@@ -1150,6 +1269,89 @@
   $('btn-csv').addEventListener('click', function () {
     var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
     window.location.href = '/api/sheet.csv?caja_id=' + encodeURIComponent(cv || 'all');
+  });
+
+  /* ---------- Compartir por WhatsApp ---------- */
+  function selectedBoxName(selId) {
+    var sel = $(selId);
+    if (!sel) return 'Todas las inversiones';
+    if (sel.value === 'all') return 'Todas las inversiones';
+    if (sel.selectedOptions && sel.selectedOptions[0]) {
+      return sel.selectedOptions[0].textContent.trim();
+    }
+    return 'Todas las inversiones';
+  }
+  function shareWhatsApp(text) {
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+  }
+
+  var shareChartsBtn = $('btn-share-charts');
+  if (shareChartsBtn) shareChartsBtn.addEventListener('click', async function () {
+    try {
+      var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+      var url = '/api/summary' + (cv && cv !== 'all' ? '?caja_id=' + encodeURIComponent(cv) : '');
+      var s = await api(url);
+      var inversion = s.total_costo_lps || 0;
+      var venta = s.total_venta_lps || 0;
+      var ganancia = venta - inversion;
+      var margen = venta > 0 ? (ganancia / venta * 100).toFixed(1) + '%' : '—';
+      var libre = s.ganancia_libre_total || 0;
+      var lines = [
+        '📦 Importaciones a Puerto Castilla',
+        '📊 ' + selectedBoxName('charts-caja'),
+        '',
+        '💰 Inversión en inventario: ' + fmtL(inversion),
+        '🏷️ Valor a precio de venta: ' + fmtL(venta),
+        '📈 Ganancia potencial: ' + fmtL(ganancia),
+        '📊 Margen promedio: ' + margen,
+        '🤝 Comisión tía Wendy (45%): ' + fmtL(libre * 0.45),
+        '👤 Christian (55%): ' + fmtL(libre * 0.55),
+        '📉 Pérdidas: ' + fmtL(s.total_perdidas_lps || 0)
+      ];
+      shareWhatsApp(lines.join('\n'));
+    } catch (e) { notice('No se pudo compartir: ' + e.message, true); }
+  });
+
+  function fmtSheetVal(v, prefix) {
+    if (v === '' || v === null || v === undefined) return '';
+    var n = Number(v);
+    if (isNaN(n)) return '';
+    return prefix + Math.abs(n).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function sheetSummaryLine(r) {
+    var vals = [
+      fmtSheetVal(r[1], '$'), fmtSheetVal(r[2], 'L'),
+      fmtSheetVal(r[3], 'L'), fmtSheetVal(r[4], 'L')
+    ].filter(function (x) { return x !== ''; });
+    return r[0] + (vals.length ? ': ' + vals.join(' · ') : '');
+  }
+  var shareSheetBtn = $('btn-share-sheet');
+  if (shareSheetBtn) shareSheetBtn.addEventListener('click', async function () {
+    try {
+      var cv = $('sheet-caja') ? $('sheet-caja').value : 'all';
+      var s = await api('/api/sheet?caja_id=' + encodeURIComponent(cv || 'all'));
+      var out = ['📄 Hoja de cálculo — Importaciones a Puerto Castilla', ''];
+      if (s.sheets) {
+        // "Todas": por caja solo el resumen (los productos serían un mensaje gigante).
+        s.sheets.forEach(function (sh) {
+          out.push('📦 ' + sh.caja_name + ' (' + sh.rows.length + ' productos)');
+          sh.summary_rows.forEach(function (r) { out.push(sheetSummaryLine(r)); });
+          out.push('');
+        });
+      } else {
+        var sh = { caja_name: selectedBoxName('sheet-caja'), rows: s.rows, summary_rows: s.summary_rows };
+        out.push('📦 ' + sh.caja_name + ' (' + sh.rows.length + ' productos)');
+        out.push('');
+        sh.rows.forEach(function (r) {
+          out.push('• ' + r[0] + ' — Pagado ' + fmtSheetVal(r[1], '$') + ' / ' +
+            fmtSheetVal(r[2], 'L') + ' · Venta ' + fmtSheetVal(r[3], 'L') +
+            ' · Ganancia ' + fmtSheetVal(r[4], 'L'));
+        });
+        out.push('');
+        sh.summary_rows.forEach(function (r) { out.push(sheetSummaryLine(r)); });
+      }
+      shareWhatsApp(out.join('\n'));
+    } catch (e) { notice('No se pudo compartir: ' + e.message, true); }
   });
   $('sheet-caja').addEventListener('change', loadSheet);
   $('charts-caja').addEventListener('change', loadSummary);

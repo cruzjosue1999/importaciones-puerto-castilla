@@ -147,6 +147,18 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 .field-row { display: flex; gap: 10px; }
 .field-row .field { flex: 1; min-width: 0; }
 
+/* Variantes: varios productos del mismo diseño */
+#variant-block { margin-bottom: 14px; }
+#variant-block > label { display: block; font-weight: 600; font-size: .9rem; margin-bottom: 6px; }
+.variant-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px;
+  margin-bottom: 8px; padding: 8px; background: #f6f8fc; border-radius: 10px; }
+.variant-row .v-del { grid-column: 1 / -1; }
+.variant-row input[type="text"], .variant-row input[type="number"] {
+  width: 100%; padding: 12px; font-size: 1rem; border: 1px solid var(--border);
+  border-radius: 10px; background: #fff;
+}
+#variant-add { margin-top: 2px; }
+
 /* Filtros por caja */
 .chips { display: flex; gap: 8px; overflow-x: auto; padding: 4px 2px 12px; -webkit-overflow-scrolling: touch; }
 .chip {
