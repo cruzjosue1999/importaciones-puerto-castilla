@@ -96,6 +96,8 @@
       c.addEventListener('click', function () { setExpChip(c.getAttribute('data-f')); });
     });
   }
+  var soldAllBtn = $('sold-all-btn');
+  if (soldAllBtn) soldAllBtn.addEventListener('click', markAllSold);
 
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
@@ -175,6 +177,7 @@
           productFilter = btn.getAttribute('data-f');
           renderChips();
           followInvestment(productFilter);
+          resetExpChipSilent(); // el filtro "Sin registrar" no se arrastra entre cajas
           loadProducts();
           loadExpenses();
         });
@@ -258,7 +261,8 @@
     return '<article class="card" data-id="' + p.id + '">' +
       '<button type="button" class="card-toggle">' +
       '<span class="card-toggle-title">' + escapeHtml(p.description) +
-      (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') + '</span>' +
+      (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') +
+      (p.lost ? '<span class="lost-badge">PÉRDIDA</span>' : '') + '</span>' +
       '<span class="chev">▼</span>' +
       '</button>' +
       '<div class="card-detail hidden">' + photo +
@@ -274,6 +278,8 @@
       '<button class="btn danger del-btn" data-id="' + p.id + '">🗑️ Eliminar</button>' +
       '<button class="btn sold-btn" data-id="' + p.id + '" data-sold="' + (p.sold ? 1 : 0) + '">' +
       (p.sold ? '↩ Quitar vendido' : '✓ Marcar como vendido') + '</button>' +
+      '<button class="btn lost-btn" data-id="' + p.id + '" data-lost="' + (p.lost ? 1 : 0) + '">' +
+      (p.lost ? '↩ Quitar pérdida' : '📉 Marcar pérdida') + '</button>' +
       '</div></div></div></article>';
   }
   function numRow(label, value, isTotal) {
@@ -316,16 +322,17 @@
   /* ---------- Productos: buscador, filtros y vendidos ---------- */
   var productListCache = [];
   var prodSearch = '';
-  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio
+  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio | lost
 
   function filteredProducts() {
     var q = prodSearch.trim().toLowerCase();
     return productListCache.filter(function (p) {
       if (q && String(p.description || '').toLowerCase().indexOf(q) < 0) return false;
       if (prodChip === 'sold') return !!p.sold;
-      if (prodChip === 'pending') return !p.sold;
+      if (prodChip === 'pending') return !p.sold && !p.lost;
       if (prodChip === 'nophoto') return !p.photo_url;
       if (prodChip === 'noprecio') return !p.sale_lps;
+      if (prodChip === 'lost') return !!p.lost;
       return true;
     });
   }
@@ -334,10 +341,15 @@
     var strip = $('sales-strip');
     if (!strip) return;
     var v = productListCache.filter(function (p) { return p.sold; });
+    var l = productListCache.filter(function (p) { return p.lost; });
     var real = v.reduce(function (a, p) { return a + (p.ganancia_libre || 0); }, 0);
+    var perd = l.reduce(function (a, p) {
+      return a + (Number(p.cost_lps) || 0) * (Number(p.quantity) || 1);
+    }, 0);
     strip.innerHTML = '<span>Vendidos: <b>' + v.length + '</b></span> · ' +
-      '<span>Pendientes: <b>' + (productListCache.length - v.length) + '</b></span> · ' +
-      '<span>Ganancia real: <b>' + fmtL(real) + '</b></span>';
+      '<span>Pérdidas: <b>' + l.length + '</b></span> · ' +
+      '<span>Pendientes: <b>' + (productListCache.length - v.length - l.length) + '</b></span> · ' +
+      '<span>Ganancia real: <b>' + fmtL(real - perd) + '</b></span>';
     strip.classList.toggle('hidden', productListCache.length === 0);
   }
 
@@ -389,6 +401,60 @@
         toggleSold(Number(b.getAttribute('data-id')), b.getAttribute('data-sold') !== '1');
       });
     });
+    box.querySelectorAll('.lost-btn').forEach(function (b) {
+      b.addEventListener('click', function () {
+        toggleLost(Number(b.getAttribute('data-id')), b.getAttribute('data-lost') !== '1');
+      });
+    });
+  }
+
+  /* Pinta botones e insignias de vendido/pérdida de una tarjeta en su lugar. */
+  function paintStatus(card, p) {
+    var sbtn = card.querySelector('.sold-btn');
+    sbtn.setAttribute('data-sold', p.sold ? '1' : '0');
+    sbtn.textContent = p.sold ? '↩ Quitar vendido' : '✓ Marcar como vendido';
+    var lbtn = card.querySelector('.lost-btn');
+    lbtn.setAttribute('data-lost', p.lost ? '1' : '0');
+    lbtn.textContent = p.lost ? '↩ Quitar pérdida' : '📉 Marcar pérdida';
+    var title = card.querySelector('.card-toggle-title');
+    var sbadge = title.querySelector('.sold-badge');
+    if (p.sold && !sbadge) {
+      var s = document.createElement('span');
+      s.className = 'sold-badge';
+      s.textContent = 'VENDIDO';
+      title.appendChild(s);
+    } else if (!p.sold && sbadge) {
+      title.removeChild(sbadge);
+    }
+    var lbadge = title.querySelector('.lost-badge');
+    if (p.lost && !lbadge) {
+      var l = document.createElement('span');
+      l.className = 'lost-badge';
+      l.textContent = 'PÉRDIDA';
+      title.appendChild(l);
+    } else if (!p.lost && lbadge) {
+      title.removeChild(lbadge);
+    }
+  }
+
+  function findCached(id) {
+    for (var i = 0; i < productListCache.length; i++) {
+      if (productListCache[i].id === id) return productListCache[i];
+    }
+    return null;
+  }
+
+  function refreshCardStatus(id) {
+    var p = findCached(id);
+    renderSalesStrip();
+    var card = document.querySelector('article.card[data-id="' + id + '"]');
+    if (!card || !p) return;
+    var stillVisible = filteredProducts().some(function (x) { return x.id === id; });
+    if (!stillVisible) {
+      card.parentNode.removeChild(card);
+    } else {
+      paintStatus(card, p);
+    }
   }
 
   async function toggleSold(id, toSold) {
@@ -399,35 +465,44 @@
       });
       // Actualizar la caché y la tarjeta en su lugar, sin reconstruir
       // la lista (para no cerrar los acordeones abiertos).
-      var p = null;
-      for (var i = 0; i < productListCache.length; i++) {
-        if (productListCache[i].id === id) { p = productListCache[i]; break; }
-      }
-      if (p) p.sold = toSold;
-      renderSalesStrip();
-      var card = document.querySelector('article.card[data-id="' + id + '"]');
-      if (card) {
-        var stillVisible = filteredProducts().some(function (x) { return x.id === id; });
-        if (!stillVisible) {
-          card.parentNode.removeChild(card);
-        } else {
-          var btn = card.querySelector('.sold-btn');
-          btn.setAttribute('data-sold', toSold ? '1' : '0');
-          btn.textContent = toSold ? '↩ Quitar vendido' : '✓ Marcar como vendido';
-          var title = card.querySelector('.card-toggle-title');
-          var badge = title.querySelector('.sold-badge');
-          if (toSold && !badge) {
-            var s = document.createElement('span');
-            s.className = 'sold-badge';
-            s.textContent = 'VENDIDO';
-            title.appendChild(s);
-          } else if (!toSold && badge) {
-            title.removeChild(badge);
-          }
-        }
-      }
+      var p = findCached(id);
+      if (p) { p.sold = toSold; if (toSold) p.lost = false; }
+      refreshCardStatus(id);
       notice(toSold ? '✅ Marcado como vendido.' : '↩ Vuelto a pendiente.');
     } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
+  }
+
+  async function toggleLost(id, toLost) {
+    try {
+      await api('/api/products/' + id + '/lost', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lost: toLost })
+      });
+      var p = findCached(id);
+      if (p) { p.lost = toLost; if (toLost) p.sold = false; }
+      refreshCardStatus(id);
+      notice(toLost ? '📉 Marcado como pérdida.' : '↩ Pérdida quitada.');
+    } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
+  }
+
+  /* Marca como vendidos todos los productos visibles (respeta la inversión,
+     el buscador y los filtros). El botón manual de cada tarjeta se conserva. */
+  async function markAllSold() {
+    var visible = filteredProducts();
+    var pendientes = visible.filter(function (p) { return !p.sold && !p.lost; });
+    if (!pendientes.length) {
+      notice(visible.length ? 'Ya todos están marcados como vendidos.' : 'No hay productos a la vista.');
+      return;
+    }
+    if (!window.confirm('¿Marcar ' + pendientes.length + ' producto(s) como vendidos?')) return;
+    try {
+      var r = await api('/api/products/sold_all', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: pendientes.map(function (p) { return p.id; }) })
+      });
+      pendientes.forEach(function (p) { p.sold = true; refreshCardStatus(p.id); });
+      notice('✅ ' + (r.marcados || pendientes.length) + ' marcados como vendidos.');
+    } catch (e) { notice('No se pudo marcar: ' + e.message, true); }
   }
 
   async function loadProducts() {
@@ -663,6 +738,14 @@
     loadExpenses();
   }
 
+  function resetExpChipSilent() {
+    expChip = 'all';
+    var chips = $('exp-filter-chips');
+    if (chips) chips.querySelectorAll('.pchip').forEach(function (c) {
+      c.classList.toggle('active', c.getAttribute('data-f') === 'all');
+    });
+  }
+
   async function loadExpenses() {
     var box = $('expense-list');
     try {
@@ -853,7 +936,8 @@
         profitCard('📈', 'Ganancia potencial', fmtL(ganancia)) +
         profitCard('📊', 'Margen promedio', margen) +
         profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45)) +
-        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55));
+        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55)) +
+        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0));
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();

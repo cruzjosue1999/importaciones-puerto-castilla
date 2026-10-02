@@ -41,7 +41,9 @@
         <button type="button" class="pchip" data-f="pending">Pendientes</button>
         <button type="button" class="pchip" data-f="nophoto">Sin foto</button>
         <button type="button" class="pchip" data-f="noprecio">Sin precio</button>
+        <button type="button" class="pchip" data-f="lost">Pérdidas</button>
       </div>
+      <button type="button" id="sold-all-btn" class="btn" style="margin:8px 0 0;">✅ Marcar todos como vendidos</button>
     </div>
     <div id="sales-strip" class="sales-strip hidden"></div>
     <div id="product-list" class="cards"></div>
@@ -297,7 +299,7 @@
 
 <div id="notice" class="notice hidden"></div>
 
-<script src="/static/app.js?v=9"></script>
+<script src="/static/app.js?v=11"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
 if ('serviceWorker' in navigator) {
