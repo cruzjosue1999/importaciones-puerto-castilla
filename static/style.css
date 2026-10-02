@@ -275,7 +275,6 @@ table.sheet tr.grand td { background: #e0e7ff; }
 }
 
 /* Crear inversión desde Productos */
-.btn-new-inv { width: 100%; margin-bottom: 10px; }
 #inv-create { margin-bottom: 12px; }
 #inv-create h3 { margin: 0 0 10px; font-size: 16px; }
 
@@ -316,3 +315,4 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .caja-box-sub { font-size: .72rem; color: var(--muted); }
 .caja-box.active { background: var(--navy); border-color: var(--navy); color: #fff; }
 .caja-box.active .caja-box-sub { color: #cbd5e1; }
+.caja-box.caja-add { border-style: dashed; color: var(--navy); }

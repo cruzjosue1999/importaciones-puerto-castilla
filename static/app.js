@@ -222,9 +222,16 @@
     ['caja-chips', 'expense-chips'].forEach(function (boxId) {
       var box = $(boxId);
       if (!box) return;
-      box.innerHTML = h;
+      // En Productos, la primera tarjeta es "＋ Agregar caja".
+      var html = (boxId === 'caja-chips')
+        ? '<button class="caja-box caja-add" data-f="__add__">' +
+          '<span class="caja-box-icon" aria-hidden="true">➕</span>' +
+          '<span class="caja-box-name">Agregar caja</span></button>' + h
+        : h;
+      box.innerHTML = html;
       box.querySelectorAll('.caja-box').forEach(function (btn) {
         btn.addEventListener('click', function () {
+          if (btn.getAttribute('data-f') === '__add__') { openInvCreate(); return; }
           productFilter = btn.getAttribute('data-f');
           renderChips();
           followInvestment(productFilter);
@@ -718,11 +725,12 @@
     $('inv-error').classList.add('hidden');
     $('inv-save').textContent = 'Crear';
   }
-  $('btn-new-inversion').addEventListener('click', function () {
+  function openInvCreate() {
     resetInvForm();
     $('inv-create').classList.remove('hidden');
     $('inv-name').focus();
-  });
+    window.scrollTo(0, 0);
+  }
   $('inv-cancel').addEventListener('click', resetInvForm);
   $('inv-save').addEventListener('click', async function () {
     var err = $('inv-error');
