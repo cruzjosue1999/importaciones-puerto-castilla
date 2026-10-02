@@ -600,3 +600,95 @@ def test_row_produccion_tiene_keys():
     assert j["sold"] is True
     row2 = _Row(cols, [2, "Q", 10, 265, 400, 135, None, 0, None, None, "", "", 1, 0, None])
     assert _product_json(row2)["sold"] is False
+
+
+# ---------- regresión: Tax y Envío automáticos en cada inversión ----------
+
+def test_tax_envio_automaticos_en_caja_nueva_y_anterior(client):
+    # Al crear una caja nacen Tax y Envío en $0
+    r = client.post("/api/cajas", json={"name": "Caja prueba auto"})
+    assert r.status_code == 201
+    cid = r.get_json()["id"]
+    exps = [e for e in client.get("/api/expenses").get_json() if e["caja_id"] == cid]
+    assert {e["name"] for e in exps} == {"Tax", "Envío"}
+    # Aunque se borren, el arranque los restaura (caja "anterior")
+    for e in exps:
+        assert client.delete("/api/expenses/%d" % e["id"]).status_code == 200
+    assert [e for e in client.get("/api/expenses").get_json() if e["caja_id"] == cid] == []
+    init_db()  # respaldo al arrancar
+    exps2 = [e for e in client.get("/api/expenses").get_json() if e["caja_id"] == cid]
+    assert {e["name"] for e in exps2} == {"Tax", "Envío"}
+    # _ensure_caja_expenses es idempotente: no duplica
+    init_db()
+    exps3 = [e for e in client.get("/api/expenses").get_json() if e["caja_id"] == cid]
+    assert len(exps3) == 2
+    # y no toca los montos que el usuario ya editó
+    tax = [e for e in exps3 if e["name"] == "Tax"][0]
+    assert client.put("/api/expenses/%d" % tax["id"],
+                      json={"name": "Tax", "amount_usd": 50, "amount_lps": 1300,
+                            "caja_id": cid}).status_code == 200
+    init_db()
+    tax2 = [e for e in client.get("/api/expenses").get_json() if e["id"] == tax["id"]][0]
+    assert tax2["amount_usd"] == 50 and tax2["amount_lps"] == 1300
+    _clean_expenses(client)
+    _clean_cajas(client)
+
+
+# ---------- vendido masivo ----------
+
+def test_sold_all_marca_solo_los_ids_recibidos(client):
+    _clean_products(client)
+    ids = []
+    for d in ("A uno", "B dos", "C tres"):
+        r = client.post("/api/products", json={"description": d})
+        assert r.status_code == 201
+        ids.append(r.get_json()["id"])
+    # sin ids no marca nada
+    assert client.post("/api/products/sold_all", json={"ids": []}).get_json()["marcados"] == 0
+    # marca solo los enviados
+    r = client.post("/api/products/sold_all", json={"ids": ids[:2]})
+    assert r.get_json()["marcados"] == 2
+    lst = {p["id"]: p for p in client.get("/api/products").get_json()}
+    assert lst[ids[0]]["sold"] is True and lst[ids[1]]["sold"] is True
+    assert lst[ids[2]]["sold"] is False
+    # ids inexistentes no rompen nada
+    assert client.post("/api/products/sold_all", json={"ids": [999999]}).get_json()["marcados"] == 0
+    _clean_products(client)
+
+
+# ---------- pérdida ----------
+
+def test_lost_toggle_excluye_sold_y_afecta_totales(client):
+    _clean_products(client)
+    r = client.post("/api/products", json={
+        "description": "Zapato perdido", "purchase_usd": 20,
+        "cost_lps": 500, "sale_lps": 800})
+    pid = r.get_json()["id"]
+    assert r.get_json()["lost"] is False
+    # marcar pérdida
+    r = client.put("/api/products/%d/lost" % pid, json={"lost": True})
+    assert r.get_json()["lost"] is True
+    j = client.get("/api/products/%d" % pid).get_json()
+    assert j["lost"] is True and j["sold"] is False
+    # vender quita la pérdida (exclusión mutua)
+    client.put("/api/products/%d/sold" % pid, json={"sold": True})
+    j = client.get("/api/products/%d" % pid).get_json()
+    assert j["sold"] is True and j["lost"] is False
+    # marcar pérdida quita el vendido
+    client.put("/api/products/%d/lost" % pid, json={"lost": True})
+    j = client.get("/api/products/%d" % pid).get_json()
+    assert j["lost"] is True and j["sold"] is False
+    assert client.put("/api/products/999999/lost", json={"lost": True}).status_code == 404
+    # resumen: excluido de la venta potencial, contado como pérdida
+    s = client.get("/api/summary").get_json()
+    assert s["n_lost"] == 1
+    assert s["total_perdidas_lps"] == 500
+    assert s["total_venta_lps"] == 0  # la pérdida no genera ingresos
+    # hoja: fila con ingresos 0 y ganancia negativa + fila resumen Pérdidas
+    sh = client.get("/api/sheet?caja_id=all").get_json()
+    hojas = sh["sheets"] if "sheets" in sh else [sh]
+    fila = [r for h in hojas for r in h["rows"] if r[0] == "Zapato perdido"][0]
+    assert fila[3] == 0 and fila[4] == -500
+    resumen = [r for h in hojas for r in h["summary_rows"] if r[0] == "Pérdidas"]
+    assert resumen and resumen[0][2] == -500
+    _clean_products(client)

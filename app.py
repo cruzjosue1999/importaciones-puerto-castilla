@@ -278,6 +278,8 @@ def init_db():
         db.execute("ALTER TABLE products ADD COLUMN quantity REAL NOT NULL DEFAULT 1")
     if "sold" not in pcols:
         db.execute("ALTER TABLE products ADD COLUMN sold INTEGER NOT NULL DEFAULT 0")
+    if "lost" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN lost INTEGER NOT NULL DEFAULT 0")
     ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
     if "caja_id" not in ecols:
         db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
@@ -287,6 +289,8 @@ def init_db():
     if "sort_order" not in ccols:
         db.execute("ALTER TABLE cajas ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
         db.execute("UPDATE cajas SET sort_order = id")
+    # Respaldo: toda inversión anterior o nueva tiene sus tarjetas Tax y Envío.
+    # Va DESPUÉS de la limpieza para no revivir la vieja "Segunda caja".
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
     n = db.execute("SELECT COUNT(*) AS n FROM expenses").fetchone()["n"]
     if n == 0:
@@ -306,6 +310,8 @@ def init_db():
         " AND NOT EXISTS (SELECT 1 FROM products WHERE products.caja_id=cajas.id)"
         " AND NOT EXISTS (SELECT 1 FROM expenses WHERE expenses.caja_id=cajas.id)"
     )
+    for (cid,) in db.execute("SELECT id FROM cajas").fetchall():
+        _ensure_caja_expenses(db, cid)
     db.commit()
     db.close()
 
@@ -433,7 +439,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
     Las cantidades multiplican los montos unitarios.
     """
     psql = ("SELECT id, description, purchase_usd, cost_lps, sale_lps,"
-            " quantity, caja_id, size_shoes, size_shirts FROM products")
+            " quantity, caja_id, size_shoes, size_shirts, lost FROM products")
     pparams: list = []
     if unassigned:
         psql += " WHERE caja_id IS NULL"
@@ -458,7 +464,13 @@ def _compute_totals(db, caja_id=None, unassigned=False):
 
     total_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in products)
     total_costo_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in products)
-    total_venta_lps = sum((p["sale_lps"] or 0) * _qty(p) for p in products)
+    # Las pérdidas no generan ingresos: se excluyen de la venta potencial,
+    # pero su costo ya pagado sigue en la inversión (es dinero perdido).
+    vendidos_o_pend = [p for p in products if not p["lost"]]
+    total_venta_lps = sum((p["sale_lps"] or 0) * _qty(p) for p in vendidos_o_pend)
+    perdidos = [p for p in products if p["lost"]]
+    total_perdidas_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in perdidos)
+    total_perdidas_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in perdidos)
     exp_usd = sum(e["amount_usd"] or 0 for e in expenses)
     exp_lps = sum(e["amount_lps"] or 0 for e in expenses)
     inversion_total_lps = total_costo_lps + exp_lps
@@ -487,6 +499,9 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         "ganancia_libre_total": ganancia_libre_total,
         "by_product": by_product,
         "n_products": len(products),
+        "n_lost": len(perdidos),
+        "total_perdidas_usd": total_perdidas_usd,
+        "total_perdidas_lps": total_perdidas_lps,
     }
 
 
@@ -572,6 +587,7 @@ def _product_json(row, caja_name=None):
         "size_shirts": row["size_shirts"] or "",
         "quantity": qty,
         "sold": bool(row["sold"]) if "sold" in row.keys() else False,
+        "lost": bool(row["lost"]) if "lost" in row.keys() else False,
     }
 
 
@@ -588,7 +604,7 @@ def api_list_products():
     caja = request.args.get("caja_id", "")
     sql = (
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
     )
     params: list = []
@@ -632,7 +648,7 @@ def api_create_product():
     db.commit()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
@@ -644,7 +660,7 @@ def api_get_product(pid):
     db = get_db()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
-        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold,"
+        " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (pid,)
     ).fetchone()
@@ -723,9 +739,58 @@ def api_mark_sold(pid):
         return jsonify({"error": "Producto no encontrado."}), 404
     data = request.get_json(silent=True) or {}
     sold = 1 if data.get("sold") in (True, 1, "1", "true", "sí", "si") else 0
-    db.execute("UPDATE products SET sold=? WHERE id=?", (sold, pid))
+    if sold:
+        db.execute("UPDATE products SET sold=1, lost=0 WHERE id=?", (pid,))
+    else:
+        db.execute("UPDATE products SET sold=0 WHERE id=?", (pid,))
     db.commit()
     return jsonify({"ok": True, "sold": bool(sold)})
+
+
+@app.route("/api/products/<int:pid>/lost", methods=["PUT"])
+def api_mark_lost(pid):
+    """Marca o desmarca un producto como pérdida: {"lost": true|false}.
+
+    Una pérdida es excluyente con la venta: al marcar pérdida se quita
+    el vendido, y al vender se quita la pérdida.
+    """
+    db = get_db()
+    row = db.execute("SELECT id FROM products WHERE id=?", (pid,)).fetchone()
+    if not row:
+        return jsonify({"error": "Producto no encontrado."}), 404
+    data = request.get_json(silent=True) or {}
+    lost = 1 if data.get("lost") in (True, 1, "1", "true", "sí", "si") else 0
+    if lost:
+        db.execute("UPDATE products SET lost=1, sold=0 WHERE id=?", (pid,))
+    else:
+        db.execute("UPDATE products SET lost=0 WHERE id=?", (pid,))
+    db.commit()
+    return jsonify({"ok": True, "lost": bool(lost)})
+
+
+@app.route("/api/products/sold_all", methods=["POST"])
+def api_mark_sold_all():
+    """Marca vendidos todos los ids recibidos: {"ids": [1,2,3]}.
+
+    El frontend envía los ids de los productos visibles (respeta la
+    inversión, el buscador y los filtros activos). Devuelve cuántos marcó.
+    """
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    ids = data.get("ids") or []
+    ids = [int(i) for i in ids if str(i).isdigit()]
+    if not ids:
+        return jsonify({"ok": True, "marcados": 0})
+    # Lotes para no exceder el límite de variables de SQLite
+    marcados = 0
+    for j in range(0, len(ids), 500):
+        lote = ids[j:j + 500]
+        ph = ",".join("?" for _ in lote)
+        cur = db.execute(
+            "UPDATE products SET sold=1 WHERE id IN (%s)" % ph, lote)
+        marcados += cur.rowcount
+    db.commit()
+    return jsonify({"ok": True, "marcados": marcados})
 
 
 @app.route("/api/pending", methods=["GET"])
@@ -913,6 +978,25 @@ def api_list_cajas():
     return jsonify([dict(zip(["id", "name", "n_products"], r)) for r in rows])
 
 
+def _ensure_caja_expenses(db, caja_id):
+    """Cada inversión debe tener siempre sus tarjetas Tax y Envío.
+
+    Crea en $0 las que falten (idempotente). Se usa al crear una caja,
+    en el arranque (para cajas anteriores) y donde se listen gastos.
+    """
+    for exp_name in ("Tax", "Envío"):
+        row = db.execute(
+            "SELECT id FROM expenses WHERE caja_id=? AND lower(trim(name))=lower(?)",
+            (caja_id, exp_name),
+        ).fetchone()
+        if not row:
+            db.execute(
+                "INSERT INTO expenses(name, amount_usd, amount_lps, caja_id)"
+                " VALUES(?,?,?,?)",
+                (exp_name, 0, 0, caja_id),
+            )
+
+
 @app.route("/api/cajas", methods=["POST"])
 def api_create_caja():
     data = request.get_json(silent=True) or {}
@@ -928,11 +1012,7 @@ def api_create_caja():
     new_id = cur.lastrowid
     # Cada inversión nace con sus propios Tax y Envío en $0, sin mezclarse
     # con los de otras carpetas; él solo edita los montos.
-    for exp_name in ("Tax", "Envío"):
-        db.execute(
-            "INSERT INTO expenses(name, amount_usd, amount_lps, caja_id) VALUES(?,?,?,?)",
-            (exp_name, 0, 0, new_id),
-        )
+    _ensure_caja_expenses(db, new_id)
     db.commit()
     return jsonify({"id": new_id, "name": name}), 201
 
@@ -997,6 +1077,9 @@ def api_summary():
             "exp_lps": t["exp_lps"],
             "inversion_total_lps": t["inversion_total_lps"],
             "ganancia_libre_total": t["ganancia_libre_total"],
+            "n_lost": t["n_lost"],
+            "total_perdidas_usd": t["total_perdidas_usd"],
+            "total_perdidas_lps": t["total_perdidas_lps"],
             "expenses": [
                 {"id": e["id"], "name": e["name"], "amount_usd": e["amount_usd"],
                  "amount_lps": e["amount_lps"]}
@@ -1027,20 +1110,36 @@ def _sheet_data(db, caja_id=None, unassigned=False):
     rows = []
     for p in products:
         q = _qty(p)
-        rows.append(
-            [
-                p["description"],
-                -float(p["purchase_usd"] or 0) * q,
-                -float(p["cost_lps"] or 0) * q,
-                float(p["sale_lps"] or 0) * q,
-                _ganancia_libre(p["cost_lps"], p["sale_lps"]) * q,
-            ]
-        )
+        if p["lost"]:
+            # Pérdida: sin ingresos y el costo como número negativo.
+            rows.append(
+                [
+                    p["description"],
+                    -float(p["purchase_usd"] or 0) * q,
+                    -float(p["cost_lps"] or 0) * q,
+                    0,
+                    -float(p["cost_lps"] or 0) * q,
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    p["description"],
+                    -float(p["purchase_usd"] or 0) * q,
+                    -float(p["cost_lps"] or 0) * q,
+                    float(p["sale_lps"] or 0) * q,
+                    _ganancia_libre(p["cost_lps"], p["sale_lps"]) * q,
+                ]
+            )
     pad = []
     summary_rows = [
         ["Total :"] + pad + [-t["total_usd"], -t["total_costo_lps"], t["total_venta_lps"],
          t["total_venta_lps"] - t["total_costo_lps"]],
     ]
+    if t["total_perdidas_lps"]:
+        summary_rows.append(
+            ["Pérdidas"] + pad + [-t["total_perdidas_usd"], -t["total_perdidas_lps"], "", ""]
+        )
     for e in t["expenses"]:
         summary_rows.append(
             [e["name"]] + pad + [-float(e["amount_usd"] or 0), -float(e["amount_lps"] or 0),
