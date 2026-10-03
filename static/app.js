@@ -1103,14 +1103,24 @@
       // Comisión: 45% tía Wendy y 55% Christian sobre la ganancia libre
       // (igual que en la Hoja: después de compra, Tax y Envío).
       var libre = s.ganancia_libre_total || 0;
+      // Tax y Envío: suman lo pagado según los datos de la pestaña Gastos.
+      var taxLps = 0, envLps = 0;
+      (s.expenses || []).forEach(function (e) {
+        var n = String(e.name || '').trim().toLowerCase();
+        var v = Number(e.amount_lps) || 0;
+        if (n === 'tax') taxLps += v;
+        else if (n === 'envío' || n === 'envio') envLps += v;
+      });
       box.innerHTML =
-        profitCard('💰', 'Inversión en inventario', fmtL(inversion)) +
-        profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps)) +
-        profitCard('📈', 'Ganancia potencial', fmtL(ganancia)) +
-        profitCard('📊', 'Margen promedio', margen) +
-        profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45)) +
-        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55)) +
-        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0));
+        profitCard('💰', 'Inversión en inventario', fmtL(inversion), 'productos') +
+        profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps), 'productos') +
+        profitCard('📈', 'Ganancia potencial', fmtL(ganancia), 'hoja') +
+        profitCard('🧾', 'Tax', fmtL(taxLps), 'gastos') +
+        profitCard('🚚', 'Envío', fmtL(envLps), 'gastos') +
+        profitCard('📊', 'Margen promedio', margen, 'hoja') +
+        profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45), 'hoja') +
+        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55), 'hoja') +
+        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0), 'productos-lost');
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
@@ -1120,11 +1130,33 @@
     var btn = document.querySelector('.tabbtn[data-tab="' + tab + '"]');
     if (btn) btn.click();
   }
-  function profitCard(ico, label, value) {
-    return '<div class="profit-card"><span class="pc-ico">' + ico + '</span>' +
+  function profitCard(ico, label, value, nav) {
+    return '<button type="button" class="profit-card" data-nav="' + nav + '">' +
+      '<span class="pc-ico">' + ico + '</span>' +
       '<span class="pc-label">' + label + '</span>' +
-      '<span class="pc-value">' + value + '</span></div>';
+      '<span class="pc-value">' + value + '</span></button>';
   }
+
+  /* Tocar un cuadro lleva a los datos de donde sale ese número,
+     manteniendo la inversión seleccionada en Gráficas. */
+  function gotoCard(nav) {
+    var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
+    if (nav === 'hoja') {
+      var sc = $('sheet-caja');
+      if (sc) sc.value = cv;
+      switchTab('hoja');
+      return;
+    }
+    productFilter = cv;
+    setProdChip(nav === 'productos-lost' ? 'lost' : 'all');
+    resetExpChipSilent();
+    switchTab(nav === 'gastos' ? 'gastos' : 'productos');
+  }
+  var summaryBox = $('summary-cards');
+  if (summaryBox) summaryBox.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('.profit-card') : null;
+    if (b && b.getAttribute('data-nav')) gotoCard(b.getAttribute('data-nav'));
+  });
 
   /* ---------- Comparar cajas ---------- */
   function cmpBar(label, val, max, color) {
