@@ -295,6 +295,10 @@ def init_db():
         db.execute("ALTER TABLE cajas ADD COLUMN exenta_fotos INTEGER NOT NULL DEFAULT 0")
     if "exenta_tax" not in ccols:
         db.execute("ALTER TABLE cajas ADD COLUMN exenta_tax INTEGER NOT NULL DEFAULT 0")
+    # Fechas del ciclo de la caja: realizada -> entregada -> finalizada.
+    for col in ("fecha_realizada", "fecha_entregada", "fecha_finalizada"):
+        if col not in ccols:
+            db.execute("ALTER TABLE cajas ADD COLUMN %s TEXT" % col)
     # Respaldo: toda inversión anterior o nueva tiene sus tarjetas Tax y Envío.
     # Va DESPUÉS de la limpieza para no revivir la vieja "Segunda caja".
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
@@ -483,26 +487,39 @@ def _compute_totals(db, caja_id=None, unassigned=False):
     total_costo_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in products)
     # Las pérdidas no generan ingresos: se excluyen de la venta potencial,
     # pero su costo ya pagado sigue en la inversión (es dinero perdido).
+    # Recuperado (lost=2): el dinero volvió; se suma a la venta al costo.
     vendidos_o_pend = [p for p in products if not p["lost"]]
-    total_venta_lps = sum(_venta_efectiva(p) * _qty(p) for p in vendidos_o_pend)
+    recuperados = [p for p in products if p["lost"] == 2]
+    total_recuperado_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in recuperados)
+    total_venta_lps = (
+        sum(_venta_efectiva(p) * _qty(p) for p in vendidos_o_pend)
+        + total_recuperado_lps
+    )
     # Lo que se deja de ganar por los descuentos (precio original - efectivo).
     total_descuentos_lps = sum(
         ((p["sale_lps"] or 0) - _venta_efectiva(p)) * _qty(p)
         for p in vendidos_o_pend
     )
-    perdidos = [p for p in products if p["lost"]]
+    perdidos = [p for p in products if p["lost"] == 1]
     total_perdidas_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in perdidos)
     total_perdidas_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in perdidos)
     exp_usd = sum(e["amount_usd"] or 0 for e in expenses)
     exp_lps = sum(e["amount_lps"] or 0 for e in expenses)
     inversion_total_lps = total_costo_lps + exp_lps
     ganancia_libre_total = total_venta_lps - inversion_total_lps
+    def _gprod(p):
+        # La pérdida y lo recuperado no cuentan en la ganancia libre:
+        # la pérdida se ve en "Pérdidas".
+        if p["lost"]:
+            return 0
+        return _ganancia_libre(p["cost_lps"], _venta_efectiva(p)) * _qty(p)
+
     by_product = sorted(
         (
             {
                 "id": p["id"],
                 "name": p["description"],
-                "ganancia_libre": _ganancia_libre(p["cost_lps"], _venta_efectiva(p)) * _qty(p),
+                "ganancia_libre": _gprod(p),
             }
             for p in products
         ),
@@ -525,6 +542,8 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         "n_lost": len(perdidos),
         "total_perdidas_usd": total_perdidas_usd,
         "total_perdidas_lps": total_perdidas_lps,
+        "n_recuperado": len(recuperados),
+        "total_recuperado_lps": total_recuperado_lps,
     }
 
 
@@ -598,6 +617,13 @@ def _product_json(row, caja_name=None):
     disc = row["discount_pct"] if "discount_pct" in row.keys() else 0
     disc = disc or 0
     efectivo = (row["sale_lps"] or 0) * (1 - disc / 100)
+    lost = row["lost"] if "lost" in row.keys() else 0
+    # Pérdida total (1) o recuperado (2): no generan ganancia; el negativo
+    # de la pérdida se muestra solo en la fila "Pérdida", no aquí.
+    if lost:
+        gl = 0
+    else:
+        gl = _ganancia_libre(row["cost_lps"], efectivo) * qty
     return {
         "id": row["id"],
         "description": row["description"],
@@ -608,9 +634,7 @@ def _product_json(row, caja_name=None):
         "sale_efectivo_lps": round(efectivo, 2),
         # Una pérdida no genera ingresos: su ganancia libre es lo pagado, en
         # negativo, sin importar el precio de venta que tuviera.
-        "ganancia_libre": (-(row["cost_lps"] or 0) * qty)
-        if ("lost" in row.keys() and row["lost"])
-        else _ganancia_libre(row["cost_lps"], efectivo) * qty,
+        "ganancia_libre": gl,
         "photo_url": f"/api/photo/{row['id']}" if has_photo else None,
         "created_at": row["created_at"],
         "caja_id": row["caja_id"],
@@ -619,7 +643,7 @@ def _product_json(row, caja_name=None):
         "size_shirts": row["size_shirts"] or "",
         "quantity": qty,
         "sold": bool(row["sold"]) if "sold" in row.keys() else False,
-        "lost": bool(row["lost"]) if "lost" in row.keys() else False,
+        "lost": lost,
     }
 
 
@@ -789,9 +813,12 @@ def api_mark_sold(pid):
 
 @app.route("/api/products/<int:pid>/lost", methods=["PUT"])
 def api_mark_lost(pid):
-    """Marca o desmarca un producto como pérdida: {"lost": true|false}.
+    """Marca un producto como pérdida total (1), recuperado (2) o normal (0).
 
-    Una pérdida es excluyente con la venta: al marcar pérdida se quita
+    {"lost": 1} pérdida total: no genera ingresos, el costo es pérdida.
+    {"lost": 2} recuperado: se recuperó lo invertido, ganancia 0.
+    {"lost": 0/false} quita la marca.
+    La pérdida es excluyente con la venta: al marcar pérdida se quita
     el vendido, y al vender se quita la pérdida.
     """
     db = get_db()
@@ -799,13 +826,19 @@ def api_mark_lost(pid):
     if not row:
         return jsonify({"error": "Producto no encontrado."}), 404
     data = request.get_json(silent=True) or {}
-    lost = 1 if data.get("lost") in (True, 1, "1", "true", "sí", "si") else 0
+    raw = data.get("lost")
+    if raw in (2, "2", "recuperado"):
+        lost = 2
+    elif raw in (True, 1, "1", "true", "sí", "si"):
+        lost = 1
+    else:
+        lost = 0
     if lost:
-        db.execute("UPDATE products SET lost=1, sold=0 WHERE id=?", (pid,))
+        db.execute("UPDATE products SET lost=?, sold=0 WHERE id=?", (lost, pid))
     else:
         db.execute("UPDATE products SET lost=0 WHERE id=?", (pid,))
     db.commit()
-    return jsonify({"ok": True, "lost": bool(lost)})
+    return jsonify({"ok": True, "lost": lost})
 
 
 @app.route("/api/products/sold_all", methods=["POST"])
@@ -1043,12 +1076,16 @@ def api_list_cajas():
     rows = db.execute(
         "SELECT c.id, c.name, COUNT(p.id) AS n_products,"
         " COALESCE(c.exenta_fotos, 0) AS exenta_fotos,"
-        " COALESCE(c.exenta_tax, 0) AS exenta_tax FROM cajas c"
+        " COALESCE(c.exenta_tax, 0) AS exenta_tax,"
+        " COALESCE(c.fecha_realizada, '') AS fecha_realizada,"
+        " COALESCE(c.fecha_entregada, '') AS fecha_entregada,"
+        " COALESCE(c.fecha_finalizada, '') AS fecha_finalizada FROM cajas c"
         " LEFT JOIN products p ON p.caja_id=c.id"
         " GROUP BY c.id ORDER BY c.sort_order, c.id"
     ).fetchall()
     return jsonify([dict(zip(
-        ["id", "name", "n_products", "exenta_fotos", "exenta_tax"], r))
+        ["id", "name", "n_products", "exenta_fotos", "exenta_tax",
+         "fecha_realizada", "fecha_entregada", "fecha_finalizada"], r))
         for r in rows])
 
 
@@ -1071,17 +1108,37 @@ def _ensure_caja_expenses(db, caja_id):
             )
 
 
+def _valid_fecha(v):
+    """Acepta ''/None (sin fecha) o AAAA-MM-DD; lo demás se rechaza."""
+    if v in (None, ""):
+        return None
+    v = str(v).strip()
+    parts = v.split("-")
+    if (len(parts) == 3 and len(parts[0]) == 4 and len(parts[1]) == 2
+            and len(parts[2]) == 2 and all(p.isdigit() for p in parts)):
+        return v
+    raise ValueError("Fecha no válida (usa AAAA-MM-DD).")
+
+
 @app.route("/api/cajas", methods=["POST"])
 def api_create_caja():
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()[:80]
     if not name:
         return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
+    try:
+        fr = _valid_fecha(data.get("fecha_realizada"))
+        fe = _valid_fecha(data.get("fecha_entregada"))
+        ff = _valid_fecha(data.get("fecha_finalizada"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
     db = get_db()
     mx = db.execute("SELECT COALESCE(MAX(sort_order), 0) FROM cajas").fetchone()[0]
     cur = db.execute(
-        "INSERT INTO cajas(name, created_at, sort_order) VALUES(?,?,?)",
-        (name, int(time.time()), mx + 1),
+        "INSERT INTO cajas(name, created_at, sort_order,"
+        " fecha_realizada, fecha_entregada, fecha_finalizada)"
+        " VALUES(?,?,?,?,?,?)",
+        (name, int(time.time()), mx + 1, fr, fe, ff),
     )
     new_id = cur.lastrowid
     # Cada inversión nace con sus propios Tax y Envío en $0, sin mezclarse
@@ -1105,6 +1162,13 @@ def api_update_caja(cid):
     if not name:
         return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
     db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
+    for campo in ("fecha_realizada", "fecha_entregada", "fecha_finalizada"):
+        if campo in data:
+            try:
+                f = _valid_fecha(data[campo])
+            except ValueError as e:
+                return jsonify({"error": str(e)}), 400
+            db.execute("UPDATE cajas SET %s=? WHERE id=?" % campo, (f, cid))
     for flag in ("exenta_fotos", "exenta_tax"):
         if flag in data:
             db.execute("UPDATE cajas SET %s=? WHERE id=?" % flag,
@@ -1162,6 +1226,8 @@ def api_summary():
             "total_descuentos_lps": t["total_descuentos_lps"],
             "total_perdidas_usd": t["total_perdidas_usd"],
             "total_perdidas_lps": t["total_perdidas_lps"],
+            "n_recuperado": t["n_recuperado"],
+            "total_recuperado_lps": t["total_recuperado_lps"],
             "expenses": [
                 {"id": e["id"], "name": e["name"], "amount_usd": e["amount_usd"],
                  "amount_lps": e["amount_lps"]}
@@ -1196,8 +1262,19 @@ def _sheet_data(db, caja_id=None, unassigned=False):
     rows = []
     for p in products:
         q = _qty(p)
-        if p["lost"]:
-            # Pérdida: sin ingresos y el costo como número negativo.
+        if p["lost"] == 2:
+            # Recuperado: el dinero volvió; ingresos al costo, ganancia 0.
+            rows.append(
+                [
+                    p["description"],
+                    -float(p["purchase_usd"] or 0) * q,
+                    -float(p["cost_lps"] or 0) * q,
+                    float(p["cost_lps"] or 0) * q,
+                    0,
+                ]
+            )
+        elif p["lost"]:
+            # Pérdida total: sin ingresos y el costo como número negativo.
             rows.append(
                 [
                     p["description"],
@@ -1225,6 +1302,10 @@ def _sheet_data(db, caja_id=None, unassigned=False):
     if t["total_perdidas_lps"]:
         summary_rows.append(
             ["Pérdidas"] + pad + [-t["total_perdidas_usd"], -t["total_perdidas_lps"], "", ""]
+        )
+    if t["total_recuperado_lps"]:
+        summary_rows.append(
+            ["Recuperado"] + pad + ["", "", t["total_recuperado_lps"], ""]
         )
     for e in t["expenses"]:
         summary_rows.append(

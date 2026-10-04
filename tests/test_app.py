@@ -664,20 +664,20 @@ def test_lost_toggle_excluye_sold_y_afecta_totales(client):
         "description": "Zapato perdido", "purchase_usd": 20,
         "cost_lps": 500, "sale_lps": 800})
     pid = r.get_json()["id"]
-    assert r.get_json()["lost"] is False
+    assert r.get_json()["lost"] == 0
     # marcar pérdida
     r = client.put("/api/products/%d/lost" % pid, json={"lost": True})
-    assert r.get_json()["lost"] is True
+    assert r.get_json()["lost"] == 1
     j = client.get("/api/products/%d" % pid).get_json()
-    assert j["lost"] is True and j["sold"] is False
+    assert j["lost"] == 1 and j["sold"] is False
     # vender quita la pérdida (exclusión mutua)
     client.put("/api/products/%d/sold" % pid, json={"sold": True})
     j = client.get("/api/products/%d" % pid).get_json()
-    assert j["sold"] is True and j["lost"] is False
+    assert j["sold"] is True and j["lost"] == 0
     # marcar pérdida quita el vendido
     client.put("/api/products/%d/lost" % pid, json={"lost": True})
     j = client.get("/api/products/%d" % pid).get_json()
-    assert j["lost"] is True and j["sold"] is False
+    assert j["lost"] == 1 and j["sold"] is False
     assert client.put("/api/products/999999/lost", json={"lost": True}).status_code == 404
     # resumen: excluido de la venta potencial, contado como pérdida
     s = client.get("/api/summary").get_json()
@@ -749,7 +749,7 @@ def test_lost_all_marca_perdida_y_quita_vendido(client):
     r = client.post("/api/products/lost_all", json={"ids": ids})
     assert r.get_json()["marcados"] == 3
     lst = {p["id"]: p for p in client.get("/api/products").get_json()}
-    assert all(lst[i]["lost"] is True and lst[i]["sold"] is False for i in ids)
+    assert all(lst[i]["lost"] == 1 and lst[i]["sold"] is False for i in ids)
     assert client.post("/api/products/lost_all", json={"ids": [999999]}).get_json()["marcados"] == 0
     _clean_products(client)
 
@@ -803,15 +803,82 @@ def test_discount_clamped_and_rejected(client):
     assert r.status_code == 400
 
 
-def test_perdida_ganancia_libre_negativa_aunque_tenga_precio(client):
-    # Una pérdida no genera ingresos: su ganancia libre es lo pagado en
-    # negativo, aunque tuviera precio de venta con descuento.
+def test_perdida_ganancia_libre_cero_y_negativo_solo_en_perdida(client):
+    # Una pérdida no cuenta en la ganancia libre (queda en 0): el negativo
+    # se muestra solo en "Pérdidas", aunque tuviera precio de venta.
     _clean_products(client)
     pid = client.post("/api/products", json={
         "description": "Perdido con precio", "cost_lps": 500,
         "sale_lps": 1000, "discount_pct": 10}).get_json()["id"]
     client.put(f"/api/products/{pid}/lost", json={"lost": True})
     p = client.get(f"/api/products/{pid}").get_json()
-    assert p["lost"] is True
-    assert p["ganancia_libre"] == pytest.approx(-500)
+    assert p["lost"] == 1
+    assert p["ganancia_libre"] == pytest.approx(0)
+    _clean_products(client)
+
+
+def test_recuperado_vuelve_lo_invertido_y_ganancia_cero(client):
+    # lost=2: el dinero volvió; se suma a la venta al costo, ganancia 0,
+    # y no cuenta como pérdida.
+    _clean_products(client)
+    pid = client.post("/api/products", json={
+        "description": "Recuperado", "purchase_usd": 10,
+        "cost_lps": 266.83, "sale_lps": 500}).get_json()["id"]
+    r = client.put(f"/api/products/{pid}/lost", json={"lost": 2})
+    assert r.get_json()["lost"] == 2
+    p = client.get(f"/api/products/{pid}").get_json()
+    assert p["lost"] == 2
+    assert p["ganancia_libre"] == pytest.approx(0)
+    s = client.get("/api/summary").get_json()
+    assert s["n_recuperado"] == 1
+    assert s["total_recuperado_lps"] == pytest.approx(266.83)
+    assert s["n_lost"] == 0
+    assert s["total_perdidas_lps"] == pytest.approx(0)
+    assert s["total_venta_lps"] == pytest.approx(266.83)
+    # quitar la marca vuelve a 0
+    client.put(f"/api/products/{pid}/lost", json={"lost": 0})
+    assert client.get(f"/api/products/{pid}").get_json()["lost"] == 0
+    _clean_products(client)
+
+
+def test_caja_fechas_ciclo(client):
+    # Las cajas guardan Realizada/Entregada/Finalizada y se pueden editar.
+    r = client.post("/api/cajas", json={
+        "name": "Caja con fechas",
+        "fecha_realizada": "2026-09-05",
+        "fecha_entregada": "2026-09-20",
+        "fecha_finalizada": "",
+    })
+    assert r.status_code == 201
+    cid = r.get_json()["id"]
+    cajas = {c["id"]: c for c in client.get("/api/cajas").get_json()}
+    assert cajas[cid]["fecha_realizada"] == "2026-09-05"
+    assert cajas[cid]["fecha_entregada"] == "2026-09-20"
+    assert cajas[cid]["fecha_finalizada"] == ""
+    # editar
+    r = client.put(f"/api/cajas/{cid}", json={
+        "name": "Caja con fechas", "fecha_finalizada": "2026-10-01"})
+    assert r.status_code == 200
+    cajas = {c["id"]: c for c in client.get("/api/cajas").get_json()}
+    assert cajas[cid]["fecha_finalizada"] == "2026-10-01"
+    assert cajas[cid]["fecha_realizada"] == "2026-09-05"
+    # fecha inválida se rechaza
+    r = client.put(f"/api/cajas/{cid}", json={
+        "name": "Caja con fechas", "fecha_realizada": "ayer"})
+    assert r.status_code == 400
+    client.delete(f"/api/cajas/{cid}")
+
+
+def test_summary_expone_perdidas_y_descuentos(client):
+    # El resumen expone los montos que Gráficas muestra en rojo negativo.
+    _clean_products(client)
+    client.post("/api/products", json={
+        "description": "Con descuento", "cost_lps": 100,
+        "sale_lps": 200, "discount_pct": 10})
+    pid2 = client.post("/api/products", json={
+        "description": "Perdido", "cost_lps": 50, "sale_lps": 100}).get_json()["id"]
+    client.put(f"/api/products/{pid2}/lost", json={"lost": True})
+    s = client.get("/api/summary").get_json()
+    assert s["total_descuentos_lps"] == pytest.approx(20)
+    assert s["total_perdidas_lps"] == pytest.approx(50)
     _clean_products(client)
