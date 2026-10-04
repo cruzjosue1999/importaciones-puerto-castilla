@@ -1,3 +1,4 @@
+import datetime
 """Pruebas de Importaciones a Puerto Castilla: CRUD, fotos, matemáticas,
 hoja, CSV y persistencia de la base de datos."""
 import io
@@ -956,5 +957,24 @@ def test_cobros_suman_y_falta_por_cobrar(client):
     assert s["total_cobrado_lps"] == pytest.approx(400)
     assert s["falta_por_cobrar_lps"] == pytest.approx(600)
     _clean_products(client)
+    for b in client.get("/api/cobros").get_json():
+        client.delete(f"/api/cobros/{b['id']}")
+
+
+def test_cobro_con_fecha_editable(client):
+    # La fecha es automática, pero se puede registrar un cobro de otro día.
+    _clean_products(client)
+    cid = client.post("/api/cajas", json={"name": "Caja fecha"}).get_json()["id"]
+    r = client.post("/api/cobros", json={
+        "caja_id": cid, "amount_lps": 250, "fecha": "2026-09-20"})
+    assert r.status_code == 201
+    items = client.get(f"/api/cobros?caja_id={cid}").get_json()
+    assert len(items) == 1
+    d = datetime.datetime.fromtimestamp(items[0]["created_at"],
+                                       datetime.timezone.utc)
+    assert (d.year, d.month, d.day) == (2026, 9, 20)
+    # fecha inválida se rechaza
+    assert client.post("/api/cobros", json={
+        "caja_id": cid, "amount_lps": 10, "fecha": "20-09-2026"}).status_code == 400
     for b in client.get("/api/cobros").get_json():
         client.delete(f"/api/cobros/{b['id']}")
