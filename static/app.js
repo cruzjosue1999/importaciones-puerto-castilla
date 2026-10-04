@@ -437,13 +437,16 @@
       });
       return base.filter(function (p) { return counts[normDesc(p.description)] > 1; });
     }
+    if (prodChip === 'hiprofit') {
+      // Solo ganancias positivas; el agrupado por categorías lo hace profitGroupsHtml.
+      return base.filter(function (p) { return (p.ganancia_libre || 0) > 0; });
+    }
     return base.filter(function (p) {
       if (prodChip === 'sold') return !!p.sold;
       if (prodChip === 'pending') return !p.sold && !p.lost;
       if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
       if (prodChip === 'noprecio') return !p.sale_lps && !p.lost;
       if (prodChip === 'lost') return p.lost === 1;
-      if (prodChip === 'hiprofit') return (p.ganancia_libre || 0) > 250;
       return true;
     });
   }
@@ -487,7 +490,7 @@
     if (noP) noP.innerHTML = (f === 'similares')
       ? 'No hay productos con descripciones similares entre las cajas.'
       : (f === 'hiprofit')
-        ? 'Ningún producto supera los L250 de ganancia libre.'
+        ? 'Ningún producto con ganancia para agrupar por categorías.'
         : 'Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.';
     if (boxChanged) {
       renderChips();
@@ -537,6 +540,46 @@
     }).join('');
   }
 
+  /* Categorías de ganancia (de menor a mayor): cada producto va a la
+     categoría más cercana; más de L550 cae en una sola categoría "+L550". */
+  var PROFIT_CATS = [25, 50, 100, 250, 300, 350, 400, 450, 500, 550];
+  function profitCatOf(g) {
+    if (g > 550) return 'mas550';
+    var best = PROFIT_CATS[0], bd = Math.abs(g - best);
+    for (var i = 1; i < PROFIT_CATS.length; i++) {
+      var d = Math.abs(g - PROFIT_CATS[i]);
+      if (d < bd) { bd = d; best = PROFIT_CATS[i]; }
+    }
+    return best;
+  }
+  function profitGroupsHtml(list) {
+    var groups = {}, order = [];
+    list.forEach(function (p) {
+      var g = Number(p.ganancia_libre) || 0;
+      if (g <= 0) return;
+      var c = profitCatOf(g);
+      var key = (c === 'mas550') ? 'mas550' : ('c' + c);
+      if (!groups[key]) { groups[key] = { cat: c, items: [] }; order.push(key); }
+      groups[key].items.push(p);
+    });
+    order.sort(function (a, b) {
+      var va = groups[a].cat === 'mas550' ? Infinity : groups[a].cat;
+      var vb = groups[b].cat === 'mas550' ? Infinity : groups[b].cat;
+      return va - vb;
+    });
+    return order.map(function (key) {
+      var gr = groups[key];
+      gr.items.sort(function (a, b) {
+        return (Number(a.ganancia_libre) || 0) - (Number(b.ganancia_libre) || 0);
+      });
+      var label = gr.cat === 'mas550' ? '+L550' : 'L' + gr.cat;
+      var head = '<div class="sim-head"><span class="sim-title">💰 Ganancia ' + label +
+        ' <span class="sim-count">(' + gr.items.length + ')</span></span></div>';
+      return '<div class="sim-group profit-group">' + head + '</div>' +
+        gr.items.map(productCard).join('');
+    }).join('');
+  }
+
   function renderProducts() {
     var box = $('product-list');
     if (!box) return;
@@ -544,6 +587,8 @@
     $('no-products').classList.toggle('hidden', list.length > 0);
     if (prodChip === 'similares') {
       box.innerHTML = similarGroupsHtml(list);
+    } else if (prodChip === 'hiprofit') {
+      box.innerHTML = profitGroupsHtml(list);
     } else if (productFilter === 'all') {
       // "Todas": una tarjeta por caja (en el orden de la app) con sus productos adentro.
       var groups = [], seen = {};
