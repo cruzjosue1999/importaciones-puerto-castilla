@@ -327,6 +327,7 @@
     if (p.quantity && Number(p.quantity) !== 1) meta.push('× ' + escapeHtml(String(p.quantity)));
     var metaHtml = meta.length ? '<p class="card-meta">' + meta.join(' &nbsp;·&nbsp; ') + '</p>' : '';
     var disc = Number(p.discount_pct) || 0;
+    var discLps = Number(p.discount_lps) || 0;
     var qty = Number(p.quantity) || 1;
     var numsHtml = numRow('Precio compra $', fmtD(p.purchase_usd)) +
       numRow('Pagado en LPS', fmtL(p.cost_lps));
@@ -340,10 +341,11 @@
       numsHtml += numRow('Precio esperado de venta', fmtL(p.sale_lps)) +
         numRow('Ganancia libre', fmtL(0), true) +
         numRow('Pérdida', negL((Number(p.cost_lps) || 0) * qty), true);
-    } else if (disc > 0) {
+    } else if (disc > 0 || discLps > 0) {
       var perdidoDesc = ((Number(p.sale_lps) || 0) - (Number(p.sale_efectivo_lps) || 0)) * qty;
+      var discBadge = discLps > 0 ? '-' + fmtL(discLps) : '-' + disc + '%';
       numsHtml += numRow('Precio original',
-          '<s class="tachado">' + fmtL(p.sale_lps) + '</s> <span class="desc-badge">-' + disc + '%</span>') +
+          '<s class="tachado">' + fmtL(p.sale_lps) + '</s> <span class="desc-badge">' + discBadge + '</span>') +
         numRow('Precio con descuento', '<span class="precio-desc">' + fmtL(p.sale_efectivo_lps) + '</span>') +
         numRow('Perdido en descuento', '<span class="neg">' + fmtL(perdidoDesc) + '</span>') +
         numRow('Ganancia libre', fmtL(p.ganancia_libre), true);
@@ -411,7 +413,7 @@
   /* ---------- Productos: buscador, filtros y vendidos ---------- */
   var productListCache = [];
   var prodSearch = '';
-  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio | lost | similares
+  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio | lost | hiprofit | similares
 
   /* Descripción normalizada para detectar productos similares/duplicados. */
   function normDesc(s) {
@@ -441,6 +443,7 @@
       if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
       if (prodChip === 'noprecio') return !p.sale_lps && !p.lost;
       if (prodChip === 'lost') return p.lost === 1;
+      if (prodChip === 'hiprofit') return (p.ganancia_libre || 0) > 250;
       return true;
     });
   }
@@ -483,7 +486,9 @@
     var noP = $('no-products');
     if (noP) noP.innerHTML = (f === 'similares')
       ? 'No hay productos con descripciones similares entre las cajas.'
-      : 'Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.';
+      : (f === 'hiprofit')
+        ? 'Ningún producto supera los L250 de ganancia libre.'
+        : 'Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.';
     if (boxChanged) {
       renderChips();
       followInvestment(productFilter);
@@ -514,7 +519,16 @@
       var head = '<div class="sim-head"><span class="sim-title">🔍 ' + escapeHtml(g.label) +
         ' <span class="sim-count">(' + g.items.length + ')</span></span>';
       if (dUsd > 0.005 || dLps > 0.005) {
-        head += '<span class="sim-diff">⚠️ Dif. de pago: ' + fmtD(dUsd) + ' (' + fmtL(dLps) + ')</span>';
+        // El producto más caro del grupo: ahí está la diferencia de precios.
+        var maxP = g.items[0];
+        g.items.forEach(function (p) {
+          var pu = Number(p.purchase_usd) || 0, mu = Number(maxP.purchase_usd) || 0;
+          var pl = Number(p.cost_lps) || 0, ml = Number(maxP.cost_lps) || 0;
+          if (pu > mu || (pu === mu && pl > ml)) maxP = p;
+        });
+        head += '<button type="button" class="sim-diff sim-diff-btn" data-target="' + maxP.id +
+          '" title="Ver el producto con la diferencia">⚠️ Dif. de pago: ' +
+          fmtD(dUsd) + ' (' + fmtL(dLps) + ')</button>';
       } else {
         head += '<span class="sim-ok">✓ Mismo precio pagado</span>';
       }
@@ -762,6 +776,7 @@
     $('edit-cost').value = p.cost_lps;
     $('edit-sale').value = p.sale_lps;
     $('edit-discount').value = p.discount_pct || 0;
+    $('edit-discount-lps').value = p.discount_lps || 0;
     $('edit-remove-photo').checked = false;
     var img = $('edit-photo-preview-img'), ph = document.querySelector('#edit-photo-preview .photo-placeholder');
     if (p.photo_url) {
@@ -880,7 +895,8 @@
       purchase_usd: $('add-usd').value,
       cost_lps: $('add-cost').value,
       sale_lps: $('add-sale').value,
-      discount_pct: $('add-discount').value
+      discount_pct: $('add-discount').value,
+      discount_lps: $('add-discount-lps').value
     };
     if (!common.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
 
@@ -896,6 +912,7 @@
         cost_lps: common.cost_lps,
         sale_lps: common.sale_lps,
         discount_pct: common.discount_pct,
+        discount_lps: common.discount_lps,
         upload_id: addPhoto.getUploadId() || undefined
       };
       try {
@@ -945,6 +962,7 @@
             cost_lps: common.cost_lps,
             sale_lps: common.sale_lps,
             discount_pct: common.discount_pct,
+        discount_lps: common.discount_lps,
             upload_id: uploadId || undefined
           })
         });
@@ -976,6 +994,7 @@
     $('edit-cost').value = p.cost_lps;
     $('edit-sale').value = p.sale_lps;
     $('edit-discount').value = p.discount_pct || 0;
+    $('edit-discount-lps').value = p.discount_lps || 0;
     $('edit-remove-photo').checked = false;
     var img = $('edit-photo-preview-img'), ph = document.querySelector('#edit-photo-preview .photo-placeholder');
     if (p.photo_url) {
@@ -998,6 +1017,26 @@
   });
   $('lost-cancel-btn').addEventListener('click', closeLostChoice);
   $('lost-modal').addEventListener('click', function (e) { if (e.target === $('lost-modal')) closeLostChoice(); });
+  /* Descuento: % o monto fijo en L, excluyentes; al escribir en uno se limpia el otro. */
+  function excluyeDescuento(pctId, lpsId) {
+    var pct = $(pctId), lps = $(lpsId);
+    pct.addEventListener('input', function () { if (Number(pct.value) > 0) lps.value = ''; });
+    lps.addEventListener('input', function () { if (Number(lps.value) > 0) pct.value = ''; });
+  }
+  excluyeDescuento('add-discount', 'add-discount-lps');
+  excluyeDescuento('edit-discount', 'edit-discount-lps');
+  /* En "Similares", tocar el ⚠️ lleva al producto más caro del grupo. */
+  $('product-list').addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.sim-diff-btn') : null;
+    if (!b) return;
+    var card = document.querySelector('article.card[data-id="' + b.getAttribute('data-target') + '"]');
+    if (!card) return;
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    card.classList.remove('flash');
+    void card.offsetWidth; // reinicia la animación si se toca dos veces seguidas
+    card.classList.add('flash');
+    setTimeout(function () { card.classList.remove('flash'); }, 2400);
+  });
   $('edit-modal').addEventListener('click', function (e) { if (e.target === $('edit-modal')) $('edit-modal').classList.add('hidden'); });
 
   $('edit-form').addEventListener('submit', async function (e) {
@@ -1015,6 +1054,7 @@
       cost_lps: $('edit-cost').value,
       sale_lps: $('edit-sale').value,
       discount_pct: $('edit-discount').value,
+      discount_lps: $('edit-discount-lps').value,
       remove_photo: $('edit-remove-photo').checked
     };
     var up = editPhoto.getUploadId();
