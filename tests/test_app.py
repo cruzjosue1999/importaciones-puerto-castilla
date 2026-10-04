@@ -882,3 +882,40 @@ def test_summary_expone_perdidas_y_descuentos(client):
     assert s["total_descuentos_lps"] == pytest.approx(20)
     assert s["total_perdidas_lps"] == pytest.approx(50)
     _clean_products(client)
+
+
+def test_descuento_monto_fijo_en_lps(client):
+    # El descuento puede ser un monto fijo en L, no solo porcentaje.
+    _clean_products(client)
+    pid = client.post("/api/products", json={
+        "description": "Con descuento fijo", "cost_lps": 100,
+        "sale_lps": 500, "discount_lps": 120}).get_json()["id"]
+    p = client.get(f"/api/products/{pid}").get_json()
+    assert p["discount_lps"] == pytest.approx(120)
+    assert p["sale_efectivo_lps"] == pytest.approx(380)
+    s = client.get("/api/summary").get_json()
+    assert s["total_descuentos_lps"] == pytest.approx(120)
+    # el monto fijo nunca deja el precio en negativo
+    client.put(f"/api/products/{pid}", json={"sale_lps": 500, "discount_lps": 900,
+                                             "description": "Con descuento fijo"})
+    p = client.get(f"/api/products/{pid}").get_json()
+    assert p["sale_efectivo_lps"] == pytest.approx(0)
+    # inválido se rechaza
+    r = client.post("/api/products", json={
+        "description": "Mal descuento", "discount_lps": "mucho"})
+    assert r.status_code == 400
+    _clean_products(client)
+
+
+def test_ganancia_libre_para_filtro_mas_250(client):
+    # El chip "💰 +L250" filtra por ganancia_libre > 250 (total de la línea).
+    _clean_products(client)
+    alto = client.post("/api/products", json={
+        "description": "Margen alto", "cost_lps": 500,
+        "sale_lps": 1000}).get_json()
+    bajo = client.post("/api/products", json={
+        "description": "Margen bajo", "cost_lps": 400,
+        "sale_lps": 500}).get_json()
+    assert alto["ganancia_libre"] == pytest.approx(500)
+    assert bajo["ganancia_libre"] == pytest.approx(100)
+    _clean_products(client)

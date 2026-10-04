@@ -282,6 +282,8 @@ def init_db():
         db.execute("ALTER TABLE products ADD COLUMN lost INTEGER NOT NULL DEFAULT 0")
     if "discount_pct" not in pcols:
         db.execute("ALTER TABLE products ADD COLUMN discount_pct REAL NOT NULL DEFAULT 0")
+    if "discount_lps" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN discount_lps REAL NOT NULL DEFAULT 0")
     ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
     if "caja_id" not in ecols:
         db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
@@ -370,6 +372,19 @@ def _num(value, field):
     return v, None
 
 
+def _precio_con_descuento(sale_lps, discount_pct, discount_lps):
+    """Precio efectivo con descuento.
+
+    El monto fijo en L tiene prioridad sobre el porcentaje; el descuento
+    nunca deja el precio en negativo.
+    """
+    sale = sale_lps or 0
+    if (discount_lps or 0) > 0:
+        return max(sale - discount_lps, 0)
+    d = discount_pct or 0
+    return sale * (1 - d / 100)
+
+
 def _product_from_request():
     """Lee description + números del POST (multipart o JSON). Devuelve (dict, error)."""
     if request.is_json:
@@ -408,6 +423,12 @@ def _product_from_request():
     except (TypeError, ValueError):
         return None, "«Descuento» no es válido."
     p["discount_pct"] = max(0, min(100, disc))
+    dlps_raw = data.get("discount_lps")
+    try:
+        dlps = float(dlps_raw) if dlps_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        return None, "«Descuento en L» no es válido."
+    p["discount_lps"] = max(0, dlps)
     return p, None
 
 
@@ -455,7 +476,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
     Las cantidades multiplican los montos unitarios.
     """
     psql = ("SELECT id, description, purchase_usd, cost_lps, sale_lps,"
-            " quantity, caja_id, size_shoes, size_shirts, lost, discount_pct FROM products")
+            " quantity, caja_id, size_shoes, size_shirts, lost, discount_pct, discount_lps FROM products")
     pparams: list = []
     if unassigned:
         psql += " WHERE caja_id IS NULL"
@@ -479,9 +500,9 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         return q if q not in (None, "") else 1
 
     def _venta_efectiva(p):
-        """Precio de venta con descuento aplicado (0% = precio original)."""
-        d = p["discount_pct"] or 0
-        return (p["sale_lps"] or 0) * (1 - d / 100)
+        """Precio de venta con descuento aplicado (monto en L o %)."""
+        return _precio_con_descuento(
+            p["sale_lps"], p["discount_pct"], p["discount_lps"])
 
     total_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in products)
     total_costo_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in products)
@@ -616,7 +637,9 @@ def _product_json(row, caja_name=None):
     qty = row["quantity"] if row["quantity"] not in (None, "") else 1
     disc = row["discount_pct"] if "discount_pct" in row.keys() else 0
     disc = disc or 0
-    efectivo = (row["sale_lps"] or 0) * (1 - disc / 100)
+    dlps = row["discount_lps"] if "discount_lps" in row.keys() else 0
+    dlps = dlps or 0
+    efectivo = _precio_con_descuento(row["sale_lps"], disc, dlps)
     lost = row["lost"] if "lost" in row.keys() else 0
     # Pérdida total (1) o recuperado (2): no generan ganancia; el negativo
     # de la pérdida se muestra solo en la fila "Pérdida", no aquí.
@@ -631,6 +654,7 @@ def _product_json(row, caja_name=None):
         "cost_lps": row["cost_lps"],
         "sale_lps": row["sale_lps"],
         "discount_pct": disc,
+        "discount_lps": dlps,
         "sale_efectivo_lps": round(efectivo, 2),
         # Una pérdida no genera ingresos: su ganancia libre es lo pagado, en
         # negativo, sin importar el precio de venta que tuviera.
@@ -661,7 +685,7 @@ def api_list_products():
     sql = (
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
-        " p.discount_pct,"
+        " p.discount_pct, p.discount_lps,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
     )
     params: list = []
@@ -694,20 +718,21 @@ def api_create_product():
         return jsonify({"error": str(e)}), 400
     cur = db.execute(
         "INSERT INTO products(description, photo, photo_mime, purchase_usd, cost_lps,"
-        " sale_lps, created_at, caja_id, size_shoes, size_shirts, quantity, discount_pct)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        " sale_lps, created_at, caja_id, size_shoes, size_shirts, quantity, discount_pct,"
+        " discount_lps)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             p["description"], photo, mime or "",
             p["purchase_usd"], p["cost_lps"], p["sale_lps"], int(time.time()),
             p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
-            p["discount_pct"],
+            p["discount_pct"], p["discount_lps"],
         ),
     )
     db.commit()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
-        " p.discount_pct,"
+        " p.discount_pct, p.discount_lps,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
@@ -720,7 +745,7 @@ def api_get_product(pid):
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
-        " p.discount_pct,"
+        " p.discount_pct, p.discount_lps,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (pid,)
     ).fetchone()
@@ -753,13 +778,13 @@ def api_update_product(pid):
     new_vals = (
         p["description"], p["purchase_usd"], p["cost_lps"], p["sale_lps"],
         p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
-        p["discount_pct"],
+        p["discount_pct"], p["discount_lps"],
     )
     if photo is not None:
         db.execute(
             "UPDATE products SET description=?, photo=?, photo_mime=?,"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?, discount_lps=?"
             " WHERE id=?",
             (p["description"], photo, mime or "") + new_vals[1:] + (pid,),
         )
@@ -767,7 +792,7 @@ def api_update_product(pid):
         db.execute(
             "UPDATE products SET description=?, photo=NULL, photo_mime='',"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?, discount_lps=?"
             " WHERE id=?",
             new_vals + (pid,),
         )
@@ -775,7 +800,7 @@ def api_update_product(pid):
         db.execute(
             "UPDATE products SET description=?,"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?, discount_lps=?"
             " WHERE id=?",
             new_vals + (pid,),
         )
@@ -1256,8 +1281,8 @@ def _sheet_data(db, caja_id=None, unassigned=False):
         return q if q not in (None, "") else 1
 
     def _ve(p):
-        d = p["discount_pct"] or 0
-        return (p["sale_lps"] or 0) * (1 - d / 100)
+        return _precio_con_descuento(
+            p["sale_lps"], p["discount_pct"], p["discount_lps"])
 
     rows = []
     for p in products:
