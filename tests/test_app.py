@@ -978,3 +978,28 @@ def test_cobro_con_fecha_editable(client):
         "caja_id": cid, "amount_lps": 10, "fecha": "20-09-2026"}).status_code == 400
     for b in client.get("/api/cobros").get_json():
         client.delete(f"/api/cobros/{b['id']}")
+
+
+def test_comisiones_se_restan_aparte(client):
+    # Las comisiones se registran aparte de los cobros y se suman.
+    _clean_products(client)
+    cid = client.post("/api/cajas", json={"name": "Caja comisiones"}).get_json()["id"]
+    r = client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 1000,
+        "note": "Tía Wendy, pago 1", "fecha": "2026-10-01"})
+    assert r.status_code == 201
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_comisiones_lps"] == pytest.approx(1000)
+    items = client.get(f"/api/comisiones?caja_id={cid}").get_json()
+    assert len(items) == 1
+    assert items[0]["note"] == "Tía Wendy, pago 1"
+    d = datetime.datetime.fromtimestamp(items[0]["created_at"],
+                                       datetime.timezone.utc)
+    assert (d.year, d.month, d.day) == (2026, 10, 1)
+    assert client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 0}).status_code == 400
+    assert client.post("/api/comisiones", json={
+        "caja_id": 999999, "amount_lps": 10}).status_code == 404
+    assert client.delete(f"/api/comisiones/{items[0]['id']}").status_code == 200
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_comisiones_lps"] == pytest.approx(0)

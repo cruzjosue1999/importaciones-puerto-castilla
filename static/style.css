@@ -348,6 +348,9 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .caja-box-sub { font-size: .72rem; color: var(--muted); }
 .caja-box-dates { display: block; font-size: .68rem; color: var(--muted); margin-top: 2px; text-align: center; line-height: 1.3; }
 .caja-box.active .caja-box-dates { color: #cbd5e1; }
+/* Secciones dentro de modales */
+.sec-sep { border-top: 1px solid var(--border); margin: 14px 0 10px; }
+.sec-title { margin: 0 0 8px; font-size: 1rem; }
 /* Tarjetas de Gráficas: presión larga para reordenar */
 .profit-card {
   -webkit-user-select: none;

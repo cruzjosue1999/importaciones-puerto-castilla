@@ -216,6 +216,30 @@
       <select id="cobros-caja"></select>
     </div>
     <div id="cobros-totals" class="cobros-totals"></div>
+    <div class="sec-sep"></div>
+    <h3 class="sec-title">🤝 Comisiones</h3>
+    <div id="comisiones-totals" class="cobros-totals"></div>
+    <div id="comisiones-list" class="cobros-list"></div>
+    <form id="comisiones-form">
+      <div class="field">
+        <label for="comision-fecha">Fecha</label>
+        <input type="date" id="comision-fecha">
+      </div>
+      <div class="field">
+        <label for="comision-monto">Monto pagado (L)</label>
+        <input type="number" id="comision-monto" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
+      </div>
+      <div class="field">
+        <label for="comision-nota">Nota (opcional)</label>
+        <input type="text" id="comision-nota" maxlength="120" placeholder="Ej: Tía Wendy, pago 1">
+      </div>
+      <p id="comisiones-error" class="error hidden"></p>
+      <div class="modal-actions">
+        <button type="submit" class="btn primary">Agregar pago</button>
+      </div>
+    </form>
+    <div class="sec-sep"></div>
+    <h3 class="sec-title">💵 Pagos recibidos</h3>
     <div id="cobros-list" class="cobros-list"></div>
     <form id="cobros-form">
       <div class="field">
