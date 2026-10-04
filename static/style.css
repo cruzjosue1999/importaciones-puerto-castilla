@@ -123,6 +123,12 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 .sim-title { font-weight: 700; }
 .sim-count { color: var(--muted); font-weight: 400; }
 .sim-diff { color: #c1121f; font-weight: 700; text-align: right; }
+.sim-diff-btn { font: inherit; background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
+.card.flash { animation: cardflash 2.4s ease; }
+@keyframes cardflash {
+  0%, 55% { box-shadow: 0 0 0 3px #f4a300; }
+  100% { box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+}
 .sim-ok { color: #2a7d2a; font-weight: 600; text-align: right; }
 
 /* ---- Comparar cajas ---- */
