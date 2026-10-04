@@ -111,6 +111,10 @@ h3 { font-size: 1rem; margin: 18px 0 8px; }
 /* ---- Vendido ---- */
 .sold-badge { display: inline-block; font-size: .68rem; font-weight: 700; background: #6b7280; color: #fff; border-radius: 6px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
 .lost-badge { display: inline-block; font-size: .68rem; font-weight: 700; background: #c1121f; color: #fff; border-radius: 6px; padding: 2px 8px; margin-left: 8px; vertical-align: middle; }
+.tachado { color: #9aa0a6; }
+.precio-desc { color: #c1121f; font-weight: 700; }
+.desc-badge { display: inline-block; font-size: .68rem; font-weight: 700; background: #c1121f; color: #fff; border-radius: 6px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; }
+.neg { color: #c1121f; font-weight: 700; }
 
 /* ---- Comparar cajas ---- */
 .compare-bars { background: var(--card); border-radius: 12px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }

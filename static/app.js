@@ -303,6 +303,26 @@
     if (p.size_shirts) meta.push('👕 ' + escapeHtml(p.size_shirts));
     if (p.quantity && Number(p.quantity) !== 1) meta.push('× ' + escapeHtml(String(p.quantity)));
     var metaHtml = meta.length ? '<p class="card-meta">' + meta.join(' &nbsp;·&nbsp; ') + '</p>' : '';
+    var disc = Number(p.discount_pct) || 0;
+    var qty = Number(p.quantity) || 1;
+    var numsHtml = numRow('Precio compra $', fmtD(p.purchase_usd)) +
+      numRow('Pagado en LPS', fmtL(p.cost_lps));
+    if (p.lost) {
+      // Pérdida: precio que se esperaba, ganancia libre y pérdida en rojo.
+      numsHtml += numRow('Precio esperado de venta', fmtL(p.sale_lps)) +
+        numRow('Ganancia libre', '<span class="neg">' + fmtL(p.ganancia_libre) + '</span>', true) +
+        numRow('Pérdida', '<span class="neg">' + fmtL(-(Number(p.ganancia_libre) || 0)) + '</span>', true);
+    } else if (disc > 0) {
+      var perdidoDesc = ((Number(p.sale_lps) || 0) - (Number(p.sale_efectivo_lps) || 0)) * qty;
+      numsHtml += numRow('Precio original',
+          '<s class="tachado">' + fmtL(p.sale_lps) + '</s> <span class="desc-badge">-' + disc + '%</span>') +
+        numRow('Precio con descuento', '<span class="precio-desc">' + fmtL(p.sale_efectivo_lps) + '</span>') +
+        numRow('Perdido en descuento', '<span class="neg">' + fmtL(perdidoDesc) + '</span>') +
+        numRow('Ganancia libre', fmtL(p.ganancia_libre), true);
+    } else {
+      numsHtml += numRow('Precio de venta', fmtL(p.sale_lps)) +
+        numRow('Ganancia libre', fmtL(p.ganancia_libre), true);
+    }
     return '<article class="card" data-id="' + p.id + '">' +
       '<button type="button" class="card-toggle">' +
       '<span class="card-toggle-title">' + escapeHtml(p.description) +
@@ -312,12 +332,7 @@
       '</button>' +
       '<div class="card-detail hidden">' + photo +
       '<div class="card-body">' + metaHtml +
-      '<div class="nums">' +
-      numRow('Precio compra $', fmtD(p.purchase_usd)) +
-      numRow('Pagado en LPS', fmtL(p.cost_lps)) +
-      numRow('Ganancia', fmtL(p.sale_lps)) +
-      numRow('Ganancia libre', fmtL(p.ganancia_libre), true) +
-      '</div>' +
+      '<div class="nums">' + numsHtml + '</div>' +
       '<div class="card-actions">' +
       '<button class="btn edit-btn" data-id="' + p.id + '">✏️ Editar</button>' +
       '<button class="btn danger del-btn" data-id="' + p.id + '">🗑️ Eliminar</button>' +
@@ -612,6 +627,7 @@
     $('edit-usd').value = p.purchase_usd;
     $('edit-cost').value = p.cost_lps;
     $('edit-sale').value = p.sale_lps;
+    $('edit-discount').value = p.discount_pct || 0;
     $('edit-remove-photo').checked = false;
     var img = $('edit-photo-preview-img'), ph = document.querySelector('#edit-photo-preview .photo-placeholder');
     if (p.photo_url) {
@@ -729,7 +745,8 @@
       caja_id: $('add-caja').value || undefined,
       purchase_usd: $('add-usd').value,
       cost_lps: $('add-cost').value,
-      sale_lps: $('add-sale').value
+      sale_lps: $('add-sale').value,
+      discount_pct: $('add-discount').value
     };
     if (!common.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
 
@@ -744,6 +761,7 @@
         purchase_usd: common.purchase_usd,
         cost_lps: common.cost_lps,
         sale_lps: common.sale_lps,
+        discount_pct: common.discount_pct,
         upload_id: addPhoto.getUploadId() || undefined
       };
       try {
@@ -792,6 +810,7 @@
             purchase_usd: common.purchase_usd,
             cost_lps: common.cost_lps,
             sale_lps: common.sale_lps,
+            discount_pct: common.discount_pct,
             upload_id: uploadId || undefined
           })
         });
@@ -822,6 +841,7 @@
     $('edit-usd').value = p.purchase_usd;
     $('edit-cost').value = p.cost_lps;
     $('edit-sale').value = p.sale_lps;
+    $('edit-discount').value = p.discount_pct || 0;
     $('edit-remove-photo').checked = false;
     var img = $('edit-photo-preview-img'), ph = document.querySelector('#edit-photo-preview .photo-placeholder');
     if (p.photo_url) {
@@ -849,6 +869,7 @@
       purchase_usd: $('edit-usd').value,
       cost_lps: $('edit-cost').value,
       sale_lps: $('edit-sale').value,
+      discount_pct: $('edit-discount').value,
       remove_photo: $('edit-remove-photo').checked
     };
     var up = editPhoto.getUploadId();
@@ -1120,7 +1141,8 @@
         profitCard('📊', 'Margen promedio', margen, 'hoja') +
         profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45), 'hoja') +
         profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55), 'hoja') +
-        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0), 'productos-lost');
+        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0), 'productos-lost') +
+        profitCard('🔖', 'Descuentos (dejado de ganar)', fmtL(s.total_descuentos_lps || 0), 'productos');
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
