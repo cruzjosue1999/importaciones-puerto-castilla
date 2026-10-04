@@ -729,6 +729,7 @@
       totals.innerHTML =
         '<div class="cobros-total-row"><span>Vendido (a crédito o no)</span><b>' + fmtL(s.total_venta_vendidos_lps) + '</b></div>' +
         '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
+        '<div class="cobros-total-row"><span>(−) Comisiones pagadas</span><b>' + fmtL(s.total_comisiones_lps || 0) + '</b></div>' +
         '<div class="cobros-total-row total"><span>📋 Falta por cobrar</span><b>' + fmtL(s.falta_por_cobrar_lps) + '</b></div>';
       // Comisiones aparte: se restan del total de ambas comisiones (45% + 55%).
       var libreC = s.ganancia_libre_total || 0;
@@ -1178,6 +1179,13 @@
   /* Modal de ganancias reales */
   $('ganreal-close').addEventListener('click', closeRealProfit);
   $('ganreal-modal').addEventListener('click', function (e) { if (e.target === $('ganreal-modal')) closeRealProfit(); });
+  /* La ✕ de cada ventana la cierra */
+  Array.prototype.forEach.call(document.querySelectorAll('.modal-x'), function (btn) {
+    btn.addEventListener('click', function () {
+      var m = btn.closest('.modal');
+      if (m) m.classList.add('hidden');
+    });
+  });
   /* Modal de cobros */
   $('cobros-close').addEventListener('click', closeCobros);
   $('cobros-modal').addEventListener('click', function (e) { if (e.target === $('cobros-modal')) closeCobros(); });
