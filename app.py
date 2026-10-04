@@ -280,6 +280,8 @@ def init_db():
         db.execute("ALTER TABLE products ADD COLUMN sold INTEGER NOT NULL DEFAULT 0")
     if "lost" not in pcols:
         db.execute("ALTER TABLE products ADD COLUMN lost INTEGER NOT NULL DEFAULT 0")
+    if "discount_pct" not in pcols:
+        db.execute("ALTER TABLE products ADD COLUMN discount_pct REAL NOT NULL DEFAULT 0")
     ecols = [r["name"] for r in db.execute("PRAGMA table_info(expenses)").fetchall()]
     if "caja_id" not in ecols:
         db.execute("ALTER TABLE expenses ADD COLUMN caja_id INTEGER")
@@ -396,6 +398,12 @@ def _product_from_request():
     if err:
         return None, err
     p["quantity"] = qty if (data.get("quantity") not in (None, "")) else 1
+    disc_raw = data.get("discount_pct")
+    try:
+        disc = float(disc_raw) if disc_raw not in (None, "") else 0
+    except (TypeError, ValueError):
+        return None, "«Descuento» no es válido."
+    p["discount_pct"] = max(0, min(100, disc))
     return p, None
 
 
@@ -443,7 +451,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
     Las cantidades multiplican los montos unitarios.
     """
     psql = ("SELECT id, description, purchase_usd, cost_lps, sale_lps,"
-            " quantity, caja_id, size_shoes, size_shirts, lost FROM products")
+            " quantity, caja_id, size_shoes, size_shirts, lost, discount_pct FROM products")
     pparams: list = []
     if unassigned:
         psql += " WHERE caja_id IS NULL"
@@ -466,12 +474,22 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         q = p["quantity"]
         return q if q not in (None, "") else 1
 
+    def _venta_efectiva(p):
+        """Precio de venta con descuento aplicado (0% = precio original)."""
+        d = p["discount_pct"] or 0
+        return (p["sale_lps"] or 0) * (1 - d / 100)
+
     total_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in products)
     total_costo_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in products)
     # Las pérdidas no generan ingresos: se excluyen de la venta potencial,
     # pero su costo ya pagado sigue en la inversión (es dinero perdido).
     vendidos_o_pend = [p for p in products if not p["lost"]]
-    total_venta_lps = sum((p["sale_lps"] or 0) * _qty(p) for p in vendidos_o_pend)
+    total_venta_lps = sum(_venta_efectiva(p) * _qty(p) for p in vendidos_o_pend)
+    # Lo que se deja de ganar por los descuentos (precio original - efectivo).
+    total_descuentos_lps = sum(
+        ((p["sale_lps"] or 0) - _venta_efectiva(p)) * _qty(p)
+        for p in vendidos_o_pend
+    )
     perdidos = [p for p in products if p["lost"]]
     total_perdidas_usd = sum((p["purchase_usd"] or 0) * _qty(p) for p in perdidos)
     total_perdidas_lps = sum((p["cost_lps"] or 0) * _qty(p) for p in perdidos)
@@ -484,7 +502,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
             {
                 "id": p["id"],
                 "name": p["description"],
-                "ganancia_libre": _ganancia_libre(p["cost_lps"], p["sale_lps"]) * _qty(p),
+                "ganancia_libre": _ganancia_libre(p["cost_lps"], _venta_efectiva(p)) * _qty(p),
             }
             for p in products
         ),
@@ -497,6 +515,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         "total_usd": total_usd,
         "total_costo_lps": total_costo_lps,
         "total_venta_lps": total_venta_lps,
+        "total_descuentos_lps": total_descuentos_lps,
         "exp_usd": exp_usd,
         "exp_lps": exp_lps,
         "inversion_total_lps": inversion_total_lps,
@@ -576,13 +595,22 @@ def _caja_name(db, caja_id):
 def _product_json(row, caja_name=None):
     has_photo = bool(row["photo"])
     qty = row["quantity"] if row["quantity"] not in (None, "") else 1
+    disc = row["discount_pct"] if "discount_pct" in row.keys() else 0
+    disc = disc or 0
+    efectivo = (row["sale_lps"] or 0) * (1 - disc / 100)
     return {
         "id": row["id"],
         "description": row["description"],
         "purchase_usd": row["purchase_usd"],
         "cost_lps": row["cost_lps"],
         "sale_lps": row["sale_lps"],
-        "ganancia_libre": _ganancia_libre(row["cost_lps"], row["sale_lps"]) * qty,
+        "discount_pct": disc,
+        "sale_efectivo_lps": round(efectivo, 2),
+        # Una pérdida no genera ingresos: su ganancia libre es lo pagado, en
+        # negativo, sin importar el precio de venta que tuviera.
+        "ganancia_libre": (-(row["cost_lps"] or 0) * qty)
+        if ("lost" in row.keys() and row["lost"])
+        else _ganancia_libre(row["cost_lps"], efectivo) * qty,
         "photo_url": f"/api/photo/{row['id']}" if has_photo else None,
         "created_at": row["created_at"],
         "caja_id": row["caja_id"],
@@ -609,6 +637,7 @@ def api_list_products():
     sql = (
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
+        " p.discount_pct,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
     )
     params: list = []
@@ -641,18 +670,20 @@ def api_create_product():
         return jsonify({"error": str(e)}), 400
     cur = db.execute(
         "INSERT INTO products(description, photo, photo_mime, purchase_usd, cost_lps,"
-        " sale_lps, created_at, caja_id, size_shoes, size_shirts, quantity)"
-        " VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+        " sale_lps, created_at, caja_id, size_shoes, size_shirts, quantity, discount_pct)"
+        " VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
         (
             p["description"], photo, mime or "",
             p["purchase_usd"], p["cost_lps"], p["sale_lps"], int(time.time()),
             p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
+            p["discount_pct"],
         ),
     )
     db.commit()
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
+        " p.discount_pct,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
@@ -665,6 +696,7 @@ def api_get_product(pid):
     row = db.execute(
         "SELECT p.id, p.description, p.photo, p.purchase_usd, p.cost_lps, p.sale_lps,"
         " p.created_at, p.caja_id, p.size_shoes, p.size_shirts, p.quantity, p.sold, p.lost,"
+        " p.discount_pct,"
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (pid,)
     ).fetchone()
@@ -697,26 +729,30 @@ def api_update_product(pid):
     new_vals = (
         p["description"], p["purchase_usd"], p["cost_lps"], p["sale_lps"],
         p["caja_id"], p["size_shoes"], p["size_shirts"], p["quantity"],
+        p["discount_pct"],
     )
     if photo is not None:
         db.execute(
             "UPDATE products SET description=?, photo=?, photo_mime=?,"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " WHERE id=?",
             (p["description"], photo, mime or "") + new_vals[1:] + (pid,),
         )
     elif remove_photo:
         db.execute(
             "UPDATE products SET description=?, photo=NULL, photo_mime='',"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " WHERE id=?",
             new_vals + (pid,),
         )
     else:
         db.execute(
             "UPDATE products SET description=?,"
             " purchase_usd=?, cost_lps=?, sale_lps=?,"
-            " caja_id=?, size_shoes=?, size_shirts=?, quantity=? WHERE id=?",
+            " caja_id=?, size_shoes=?, size_shirts=?, quantity=?, discount_pct=?"
+            " WHERE id=?",
             new_vals + (pid,),
         )
     db.commit()
@@ -1123,6 +1159,7 @@ def api_summary():
             "inversion_total_lps": t["inversion_total_lps"],
             "ganancia_libre_total": t["ganancia_libre_total"],
             "n_lost": t["n_lost"],
+            "total_descuentos_lps": t["total_descuentos_lps"],
             "total_perdidas_usd": t["total_perdidas_usd"],
             "total_perdidas_lps": t["total_perdidas_lps"],
             "expenses": [
@@ -1152,6 +1189,10 @@ def _sheet_data(db, caja_id=None, unassigned=False):
         q = p["quantity"]
         return q if q not in (None, "") else 1
 
+    def _ve(p):
+        d = p["discount_pct"] or 0
+        return (p["sale_lps"] or 0) * (1 - d / 100)
+
     rows = []
     for p in products:
         q = _qty(p)
@@ -1172,8 +1213,8 @@ def _sheet_data(db, caja_id=None, unassigned=False):
                     p["description"],
                     -float(p["purchase_usd"] or 0) * q,
                     -float(p["cost_lps"] or 0) * q,
-                    float(p["sale_lps"] or 0) * q,
-                    _ganancia_libre(p["cost_lps"], p["sale_lps"]) * q,
+                    float(_ve(p)) * q,
+                    _ganancia_libre(p["cost_lps"], _ve(p)) * q,
                 ]
             )
     pad = []

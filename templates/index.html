@@ -112,6 +112,10 @@
         <label for="add-sale">Precio de venta en LPS</label>
         <input type="number" id="add-sale" min="0" step="0.01" inputmode="decimal" placeholder="0.00">
       </div>
+      <div class="field">
+        <label for="add-discount">Descuento % (0 = sin descuento)</label>
+        <input type="number" id="add-discount" min="0" max="100" step="1" inputmode="decimal" placeholder="0">
+      </div>
       <p id="add-error" class="error hidden"></p>
       <button type="submit" id="btn-save" class="btn primary">Guardar producto</button>
     </form>
@@ -228,6 +232,10 @@
       <div class="field">
         <label for="edit-sale">Precio de venta en LPS</label>
         <input type="number" id="edit-sale" min="0" step="0.01" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label for="edit-discount">Descuento % (0 = sin descuento)</label>
+        <input type="number" id="edit-discount" min="0" max="100" step="1" inputmode="decimal">
       </div>
       <p id="edit-error" class="error hidden"></p>
       <div class="modal-actions">
