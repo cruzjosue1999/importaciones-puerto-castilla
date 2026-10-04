@@ -197,6 +197,7 @@
 <!-- Modal: tipo de pérdida -->
 <div id="lost-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Marcar pérdida">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>Marcar pérdida</h2>
     <p class="hint">¿Qué pasó con este producto?</p>
     <div class="modal-actions" style="flex-direction:column;">
@@ -210,6 +211,7 @@
 <!-- Modal: cobros (ventas al crédito) -->
 <div id="cobros-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Cobros">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>💵 Cobros</h2>
     <div class="field">
       <label for="cobros-caja">Caja</label>
@@ -266,6 +268,7 @@
 <!-- Modal: ganancias reales (menos comisiones 45/55) -->
 <div id="ganreal-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Ganancias reales">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>💰 Ganancias reales</h2>
     <div id="ganreal-body" class="cobros-totals"></div>
     <div class="modal-actions">
@@ -285,6 +288,7 @@
 <!-- Modal de edición -->
 <div id="edit-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Editar producto">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>Editar producto</h2>
     <form id="edit-form" class="form">
       <input type="hidden" id="edit-id">
@@ -351,6 +355,7 @@
 <!-- Modal de edición de gasto -->
 <div id="expense-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Editar gasto">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>Editar gasto</h2>
     <form id="expense-form" class="form">
       <input type="hidden" id="expense-id">
@@ -382,6 +387,7 @@
 <!-- Confirmación (reemplaza confirm() del navegador, bloqueado en iOS) -->
 <div id="confirm-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Confirmar">
   <div class="modal-box">
+    <button type="button" class="modal-x" aria-label="Cerrar">✕</button>
     <h2>Confirmar</h2>
     <p id="confirm-msg"></p>
     <div class="modal-actions">
