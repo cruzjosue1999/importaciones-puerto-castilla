@@ -25,6 +25,18 @@
         <label for="inv-name">Nombre de la inversión *</label>
         <input type="text" id="inv-name" maxlength="80" placeholder="Ej: Inversión de enero">
       </div>
+      <div class="field">
+        <label for="inv-fecha-realizada">Realizada</label>
+        <input type="date" id="inv-fecha-realizada">
+      </div>
+      <div class="field">
+        <label for="inv-fecha-entregada">Entregada</label>
+        <input type="date" id="inv-fecha-entregada">
+      </div>
+      <div class="field">
+        <label for="inv-fecha-finalizada">Finalizada</label>
+        <input type="date" id="inv-fecha-finalizada">
+      </div>
       <p id="inv-error" class="error hidden"></p>
       <div class="form-actions">
         <button type="button" id="inv-save" class="btn primary">Crear</button>
@@ -176,6 +188,19 @@
     </div>
   </section>
 </main>
+
+<!-- Modal: tipo de pérdida -->
+<div id="lost-modal" class="modal hidden" role="dialog" aria-modal="true" aria-label="Marcar pérdida">
+  <div class="modal-box">
+    <h2>Marcar pérdida</h2>
+    <p class="hint">¿Qué pasó con este producto?</p>
+    <div class="modal-actions" style="flex-direction:column;">
+      <button type="button" id="lost-total-btn" class="btn danger">📉 Pérdida total</button>
+      <button type="button" id="lost-rec-btn" class="btn">↩️ Se recuperó lo invertido</button>
+      <button type="button" id="lost-cancel-btn" class="btn">Cancelar</button>
+    </div>
+  </div>
+</div>
 
 <nav class="tabbar" aria-label="Navegación">
   <button class="tabbtn active" data-tab="productos">📦<span>Productos</span></button>

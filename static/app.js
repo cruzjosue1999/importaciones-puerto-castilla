@@ -12,6 +12,12 @@
   function fmtL(v) {
     return 'L' + Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+  /* Número negativo en rojo (para pérdidas y descuentos). */
+  function negL(v) {
+    v = Number(v) || 0;
+    if (!v) return fmtL(0);
+    return '<span class="neg">' + fmtL(-Math.abs(v)) + '</span>';
+  }
   function fmtD(v) {
     return '$' + Number(v || 0).toLocaleString('es-HN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -151,6 +157,9 @@
     var c = needCaja(); if (!c) return;
     invEditId = c.id;
     $('inv-name').value = c.name;
+    $('inv-fecha-realizada').value = c.fecha_realizada || '';
+    $('inv-fecha-entregada').value = c.fecha_entregada || '';
+    $('inv-fecha-finalizada').value = c.fecha_finalizada || '';
     $('inv-error').classList.add('hidden');
     $('inv-save').textContent = 'Guardar cambios';
     $('inv-create').classList.remove('hidden');
@@ -214,21 +223,34 @@
   /* Una sola inversión seleccionada manda en toda la app: las cajas con
      icono de Productos y de Gastos comparten la selección; al tocar una
      caja se muestran sus productos, fotos, gastos, gráficas y hoja. */
+  /* AAAA-MM-DD -> D/M/AAAA para mostrar en las tarjetas. */
+  function fmtFecha(iso) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? (Number(m[3]) + '/' + Number(m[2]) + '/' + m[1]) : '';
+  }
+  function fmtFechas(c) {
+    var parts = [];
+    if (c.fecha_realizada) parts.push('Realizada ' + fmtFecha(c.fecha_realizada));
+    if (c.fecha_entregada) parts.push('Entregada ' + fmtFecha(c.fecha_entregada));
+    if (c.fecha_finalizada) parts.push('Finalizada ' + fmtFecha(c.fecha_finalizada));
+    return parts.join(' · ');
+  }
   function renderChips() {
-    var boxes = [{ f: 'all', icon: '🗂️', name: 'Todas', sub: '' }];
+    var boxes = [{ f: 'all', icon: '🗂️', name: 'Todas', sub: '', dates: '' }];
     cajasCache.forEach(function (c) {
       boxes.push({
         f: String(c.id), icon: '📦', name: c.name,
-        sub: c.n_products + ' prod.'
+        sub: c.n_products + ' prod.', dates: fmtFechas(c)
       });
     });
-    boxes.push({ f: 'none', icon: '🏷️', name: 'Sin inversión', sub: '' });
+    boxes.push({ f: 'none', icon: '🏷️', name: 'Sin inversión', sub: '', dates: '' });
     var h = boxes.map(function (b) {
       return '<button class="caja-box' + (String(productFilter) === b.f ? ' active' : '') +
         '" data-f="' + b.f + '">' +
         '<span class="caja-box-icon" aria-hidden="true">' + b.icon + '</span>' +
         '<span class="caja-box-name">' + escapeHtml(b.name) + '</span>' +
         (b.sub ? '<span class="caja-box-sub">' + escapeHtml(b.sub) + '</span>' : '') +
+        (b.dates ? '<span class="caja-box-dates">' + escapeHtml(b.dates) + '</span>' : '') +
         '</button>';
     }).join('');
     ['caja-chips', 'expense-chips'].forEach(function (boxId) {
@@ -308,11 +330,16 @@
     var qty = Number(p.quantity) || 1;
     var numsHtml = numRow('Precio compra $', fmtD(p.purchase_usd)) +
       numRow('Pagado en LPS', fmtL(p.cost_lps));
-    if (p.lost) {
-      // Pérdida: precio que se esperaba, ganancia libre y pérdida (solo esta en rojo).
+    if (p.lost === 2) {
+      // Recuperado: volvió lo invertido, ganancia 0.
+      numsHtml += numRow('Monto recuperado', fmtL((Number(p.cost_lps) || 0) * qty)) +
+        numRow('Ganancia libre', fmtL(0), true);
+    } else if (p.lost === 1) {
+      // Pérdida total: el negativo va en la fila "Pérdida" (rojo);
+      // la ganancia libre ya no cuenta la pérdida: queda en 0.
       numsHtml += numRow('Precio esperado de venta', fmtL(p.sale_lps)) +
-        numRow('Ganancia libre', fmtL(p.ganancia_libre), true) +
-        numRow('Pérdida', '<span class="neg">' + fmtL(-(Number(p.ganancia_libre) || 0)) + '</span>', true);
+        numRow('Ganancia libre', fmtL(0), true) +
+        numRow('Pérdida', negL((Number(p.cost_lps) || 0) * qty), true);
     } else if (disc > 0) {
       var perdidoDesc = ((Number(p.sale_lps) || 0) - (Number(p.sale_efectivo_lps) || 0)) * qty;
       numsHtml += numRow('Precio original',
@@ -328,7 +355,8 @@
       '<button type="button" class="card-toggle">' +
       '<span class="card-toggle-title">' + escapeHtml(p.description) +
       (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') +
-      (p.lost ? '<span class="lost-badge">PÉRDIDA</span>' : '') + '</span>' +
+      (p.lost === 1 ? '<span class="lost-badge">PÉRDIDA</span>' : '') +
+      (p.lost === 2 ? '<span class="rec-badge">RECUPERADO</span>' : '') + '</span>' +
       '<span class="chev">▼</span>' +
       '</button>' +
       '<div class="card-detail hidden">' + photo +
@@ -412,7 +440,7 @@
       if (prodChip === 'pending') return !p.sold && !p.lost;
       if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
       if (prodChip === 'noprecio') return !p.sale_lps && !p.lost;
-      if (prodChip === 'lost') return !!p.lost;
+      if (prodChip === 'lost') return p.lost === 1;
       return true;
     });
   }
@@ -421,14 +449,16 @@
     var strip = $('sales-strip');
     if (!strip) return;
     var v = productListCache.filter(function (p) { return p.sold; });
-    var l = productListCache.filter(function (p) { return p.lost; });
+    var l = productListCache.filter(function (p) { return p.lost === 1; });
+    var r = productListCache.filter(function (p) { return p.lost === 2; });
     var real = v.reduce(function (a, p) { return a + (p.ganancia_libre || 0); }, 0);
     var perd = l.reduce(function (a, p) {
       return a + (Number(p.cost_lps) || 0) * (Number(p.quantity) || 1);
     }, 0);
     strip.innerHTML = '<span>Vendidos: <b>' + v.length + '</b></span> · ' +
       '<span>Pérdidas: <b>' + l.length + '</b></span> · ' +
-      '<span>Pendientes: <b>' + (productListCache.length - v.length - l.length) + '</b></span> · ' +
+      '<span>Recuperados: <b>' + r.length + '</b></span> · ' +
+      '<span>Pendientes: <b>' + (productListCache.length - v.length - l.length - r.length) + '</b></span> · ' +
       '<span>Ganancia real: <b>' + fmtL(real - perd) + '</b></span>';
     strip.classList.toggle('hidden', productListCache.length === 0);
   }
@@ -536,9 +566,23 @@
     });
     box.querySelectorAll('.lost-btn').forEach(function (b) {
       b.addEventListener('click', function () {
-        toggleLost(Number(b.getAttribute('data-id')), b.getAttribute('data-lost') !== '1');
+        var id = Number(b.getAttribute('data-id'));
+        var p = findCached(id);
+        if (p && p.lost) toggleLost(id, 0);
+        else openLostChoice(id);
       });
     });
+  }
+
+  /* Elige el tipo de pérdida: total (1) o recuperado (2). */
+  var lostChoiceId = null;
+  function openLostChoice(id) {
+    lostChoiceId = id;
+    $('lost-modal').classList.remove('hidden');
+  }
+  function closeLostChoice() {
+    lostChoiceId = null;
+    $('lost-modal').classList.add('hidden');
   }
 
   /* Pinta botones e insignias de vendido/pérdida de una tarjeta en su lugar. */
@@ -547,7 +591,7 @@
     sbtn.setAttribute('data-sold', p.sold ? '1' : '0');
     sbtn.textContent = p.sold ? '↩ Quitar vendido' : '✓ Marcar como vendido';
     var lbtn = card.querySelector('.lost-btn');
-    lbtn.setAttribute('data-lost', p.lost ? '1' : '0');
+    lbtn.setAttribute('data-lost', String(p.lost || 0));
     lbtn.textContent = p.lost ? '↩ Quitar pérdida' : '📉 Marcar pérdida';
     var title = card.querySelector('.card-toggle-title');
     var sbadge = title.querySelector('.sold-badge');
@@ -560,13 +604,26 @@
       title.removeChild(sbadge);
     }
     var lbadge = title.querySelector('.lost-badge');
-    if (p.lost && !lbadge) {
-      var l = document.createElement('span');
-      l.className = 'lost-badge';
-      l.textContent = 'PÉRDIDA';
-      title.appendChild(l);
-    } else if (!p.lost && lbadge) {
-      title.removeChild(lbadge);
+    var rbadge = title.querySelector('.rec-badge');
+    if (p.lost === 1) {
+      if (rbadge) title.removeChild(rbadge);
+      if (!lbadge) {
+        var l = document.createElement('span');
+        l.className = 'lost-badge';
+        l.textContent = 'PÉRDIDA';
+        title.appendChild(l);
+      }
+    } else if (p.lost === 2) {
+      if (lbadge) title.removeChild(lbadge);
+      if (!rbadge) {
+        var r = document.createElement('span');
+        r.className = 'rec-badge';
+        r.textContent = 'RECUPERADO';
+        title.appendChild(r);
+      }
+    } else {
+      if (lbadge) title.removeChild(lbadge);
+      if (rbadge) title.removeChild(rbadge);
     }
   }
 
@@ -613,8 +670,9 @@
       });
       var p = findCached(id);
       if (p) { p.lost = toLost; if (toLost) p.sold = false; }
-      refreshCardStatus(id);
-      notice(toLost ? '📉 Marcado como pérdida.' : '↩ Pérdida quitada.');
+      loadProducts(); // re-render completo: las filas cambian según el tipo
+      notice(toLost === 2 ? '↩️ Recuperado: volvió lo invertido.'
+        : toLost === 1 ? '📉 Pérdida total marcada.' : '↩ Pérdida quitada.');
     } catch (e) { notice('No se pudo actualizar: ' + e.message, true); }
   }
 
@@ -929,6 +987,17 @@
     $('edit-modal').classList.remove('hidden');
   }
   $('edit-cancel').addEventListener('click', function () { $('edit-modal').classList.add('hidden'); });
+  /* Modal de tipo de pérdida */
+  $('lost-total-btn').addEventListener('click', function () {
+    var id = lostChoiceId; closeLostChoice();
+    if (id) toggleLost(id, 1);
+  });
+  $('lost-rec-btn').addEventListener('click', function () {
+    var id = lostChoiceId; closeLostChoice();
+    if (id) toggleLost(id, 2);
+  });
+  $('lost-cancel-btn').addEventListener('click', closeLostChoice);
+  $('lost-modal').addEventListener('click', function (e) { if (e.target === $('lost-modal')) closeLostChoice(); });
   $('edit-modal').addEventListener('click', function (e) { if (e.target === $('edit-modal')) $('edit-modal').classList.add('hidden'); });
 
   $('edit-form').addEventListener('submit', async function (e) {
@@ -969,6 +1038,9 @@
     invEditId = null;
     $('inv-create').classList.add('hidden');
     $('inv-name').value = '';
+    $('inv-fecha-realizada').value = '';
+    $('inv-fecha-entregada').value = '';
+    $('inv-fecha-finalizada').value = '';
     $('inv-error').classList.add('hidden');
     $('inv-save').textContent = 'Crear';
   }
@@ -984,11 +1056,17 @@
     err.classList.add('hidden');
     var name = $('inv-name').value.trim();
     if (!name) { err.textContent = 'Ponle un nombre a la inversión.'; err.classList.remove('hidden'); return; }
+    var payload = {
+      name: name,
+      fecha_realizada: $('inv-fecha-realizada').value || '',
+      fecha_entregada: $('inv-fecha-entregada').value || '',
+      fecha_finalizada: $('inv-fecha-finalizada').value || ''
+    };
     try {
       if (invEditId) {
         await api('/api/cajas/' + invEditId, {
           method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: name })
+          body: JSON.stringify(payload)
         });
         notice('✅ Inversión actualizada.');
         resetInvForm();
@@ -1000,7 +1078,7 @@
       }
       var c = await api('/api/cajas', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name })
+        body: JSON.stringify(payload)
       });
       resetInvForm();
       notice('✅ Inversión creada.');
@@ -1217,8 +1295,8 @@
         profitCard('📊', 'Margen promedio', margen, 'hoja') +
         profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45), 'hoja') +
         profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55), 'hoja') +
-        profitCard('📉', 'Pérdidas', fmtL(s.total_perdidas_lps || 0), 'productos-lost') +
-        profitCard('🔖', 'Descuentos (dejado de ganar)', fmtL(s.total_descuentos_lps || 0), 'productos');
+        profitCard('📉', 'Pérdidas', negL(s.total_perdidas_lps), 'productos-lost') +
+        profitCard('🔖', 'Descuentos (dejado de ganar)', negL(s.total_descuentos_lps), 'productos');
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
