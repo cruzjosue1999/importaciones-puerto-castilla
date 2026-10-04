@@ -165,6 +165,7 @@
   /* ---------- Cajas (grupos por enviada) ---------- */
   var cajasCache = [];
   var productFilter = 'all'; // 'all' | 'none' | <id>
+  var prevBoxFilter = null; // caja anterior al entrar a "Similares"
 
   function cajaOptionsHTML(selected, includeGeneral) {
     var sel = selected == null ? '' : String(selected);
@@ -433,16 +434,38 @@
   }
 
   function setProdChip(f) {
+    var was = prodChip;
     prodChip = f;
+    // "Similares" compara productos entre todas las cajas: la selección pasa
+    // a "Todas" al entrar y se restaura la caja anterior al salir.
+    var boxChanged = (f === 'similares') !== (was === 'similares');
+    if (f === 'similares' && was !== 'similares') {
+      prevBoxFilter = productFilter;
+      productFilter = 'all';
+    } else if (was === 'similares' && f !== 'similares') {
+      if (prevBoxFilter) productFilter = prevBoxFilter;
+      prevBoxFilter = null;
+    }
     var chips = $('prod-chips');
     if (chips) chips.querySelectorAll('.pchip').forEach(function (c) {
       c.classList.toggle('active', c.getAttribute('data-f') === f);
     });
-    renderProducts();
+    var noP = $('no-products');
+    if (noP) noP.innerHTML = (f === 'similares')
+      ? 'No hay productos con descripciones similares entre las cajas.'
+      : 'Aún no hay productos. Toca el botón <strong>+</strong> para agregar el primero.';
+    if (boxChanged) {
+      renderChips();
+      followInvestment(productFilter);
+      resetExpChipSilent();
+      loadProducts(); // "Similares" trae productos de todas las cajas
+    } else {
+      renderProducts();
+    }
   }
 
-  /* Grupos de productos con descripción similar: a la derecha se muestra
-     si lo pagado difiere entre ellos. */
+  /* Grupos de productos con descripción similar (entre todas las cajas):
+     a la derecha se muestra la diferencia de lo pagado en $ y LPS. */
   function similarGroupsHtml(list) {
     var groups = {}, order = [];
     list.forEach(function (p) {
@@ -453,14 +476,17 @@
     });
     return order.map(function (k) {
       var g = groups[k];
-      var pagos = g.items.map(function (p) { return Number(p.cost_lps) || 0; });
-      var min = Math.min.apply(null, pagos), max = Math.max.apply(null, pagos);
+      g.items.sort(function (a, b) { return (Number(a.purchase_usd) || 0) - (Number(b.purchase_usd) || 0); });
+      var usds = g.items.map(function (p) { return Number(p.purchase_usd) || 0; });
+      var lpss = g.items.map(function (p) { return Number(p.cost_lps) || 0; });
+      var dUsd = Math.max.apply(null, usds) - Math.min.apply(null, usds);
+      var dLps = Math.max.apply(null, lpss) - Math.min.apply(null, lpss);
       var head = '<div class="sim-head"><span class="sim-title">🔍 ' + escapeHtml(g.label) +
         ' <span class="sim-count">(' + g.items.length + ')</span></span>';
-      if (max - min > 0.005) {
-        head += '<span class="sim-diff">⚠️ Pagado distinto: ' + fmtL(min) + ' – ' + fmtL(max) + '</span>';
+      if (dUsd > 0.005 || dLps > 0.005) {
+        head += '<span class="sim-diff">⚠️ Dif. de pago: ' + fmtD(dUsd) + ' (' + fmtL(dLps) + ')</span>';
       } else {
-        head += '<span class="sim-ok">✓ Mismo pagado: ' + fmtL(max) + '</span>';
+        head += '<span class="sim-ok">✓ Mismo precio pagado</span>';
       }
       return '<div class="sim-group">' + head + '</div>' +
         g.items.map(productCard).join('');
@@ -654,7 +680,10 @@
   async function loadProducts() {
     try {
       var url = '/api/products';
-      if (productFilter !== 'all') url += '?caja_id=' + encodeURIComponent(productFilter);
+      // En "Similares" se comparan productos de todas las cajas.
+      if (prodChip !== 'similares' && productFilter !== 'all') {
+        url += '?caja_id=' + encodeURIComponent(productFilter);
+      }
       productListCache = await api(url);
       renderSalesStrip();
       renderProducts();
@@ -1217,6 +1246,7 @@
       return;
     }
     productFilter = cv;
+    prevBoxFilter = null; // la caja elegida en Gráficas manda sobre la anterior
     setProdChip(nav === 'productos-lost' ? 'lost' : 'all');
     resetExpChipSilent();
     switchTab(nav === 'gastos' ? 'gastos' : 'productos');
