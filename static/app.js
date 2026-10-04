@@ -644,6 +644,35 @@
     $('lost-modal').classList.add('hidden');
   }
 
+  /* Ganancias reales: desglose de la ganancia libre y el reparto 45/55. */
+  function openRealProfit() {
+    var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
+    var q = (cv && cv !== 'all') ? '?caja_id=' + encodeURIComponent(cv) : '';
+    $('ganreal-modal').classList.remove('hidden');
+    var body = $('ganreal-body');
+    body.innerHTML = '<p class="hint">Cargando…</p>';
+    api('/api/summary' + q).then(function (s) {
+      var te = splitTaxEnv(s);
+      var libre = s.ganancia_libre_total || 0;
+      function row(lbl, val, total) {
+        return '<div class="cobros-total-row' + (total ? ' total' : '') + '"><span>' +
+          lbl + '</span><b>' + fmtL(val) + '</b></div>';
+      }
+      body.innerHTML =
+        row('Valor a precio de venta', s.total_venta_lps || 0) +
+        row('(−) Inversión en inventario', -(s.total_costo_lps || 0)) +
+        row('(−) Tax', -te.tax) +
+        row('(−) Envío', -te.env) +
+        row('= Ganancia real', libre, true) +
+        '<div style="height:8px"></div>' +
+        row('🤝 Comisión tía Wendy (45%)', libre * 0.45) +
+        row('👤 Christian (55%)', libre * 0.55, true);
+    }).catch(function (e) {
+      body.innerHTML = '<p class="error">No se pudo cargar.</p>';
+    });
+  }
+  function closeRealProfit() { $('ganreal-modal').classList.add('hidden'); }
+
   /* Cobros: pagos recibidos por caja (ventas al crédito, en partes). */
   function hoyISO() {
     var d = new Date();
@@ -1126,6 +1155,9 @@
   }
   excluyeDescuento('add-discount', 'add-discount-lps');
   excluyeDescuento('edit-discount', 'edit-discount-lps');
+  /* Modal de ganancias reales */
+  $('ganreal-close').addEventListener('click', closeRealProfit);
+  $('ganreal-modal').addEventListener('click', function (e) { if (e.target === $('ganreal-modal')) closeRealProfit(); });
   /* Modal de cobros */
   $('cobros-close').addEventListener('click', closeCobros);
   $('cobros-modal').addEventListener('click', function (e) { if (e.target === $('cobros-modal')) closeCobros(); });
@@ -1460,26 +1492,24 @@
       // (igual que en la Hoja: después de compra, Tax y Envío).
       var libre = s.ganancia_libre_total || 0;
       // Tax y Envío: suman lo pagado según los datos de la pestaña Gastos.
-      var taxLps = 0, envLps = 0;
-      (s.expenses || []).forEach(function (e) {
-        var n = String(e.name || '').trim().toLowerCase();
-        var v = Number(e.amount_lps) || 0;
-        if (n === 'tax') taxLps += v;
-        else if (n === 'envío' || n === 'envio') envLps += v;
-      });
-      box.innerHTML =
-        profitCard('💰', 'Inversión en inventario', fmtL(inversion), 'productos') +
-        profitCard('🏷️', 'Valor a precio de venta', fmtL(s.total_venta_lps), 'productos') +
-        profitCard('📈', 'Ganancia potencial', fmtL(ganancia), 'hoja') +
-        profitCard('🧾', 'Tax', fmtL(taxLps), 'gastos') +
-        profitCard('🚚', 'Envío', fmtL(envLps), 'gastos') +
-        profitCard('📊', 'Margen promedio', margen, 'hoja') +
-        profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45), 'hoja') +
-        profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55), 'hoja') +
-        profitCard('📉', 'Pérdidas', negL(s.total_perdidas_lps), 'productos-lost') +
-        profitCard('🔖', 'Descuentos (dejado de ganar)', negL(s.total_descuentos_lps), 'productos') +
-        profitCard('💵', 'Cobrado', fmtL(s.total_cobrado_lps), 'cobros') +
-        profitCard('📋', 'Falta por cobrar', fmtL(s.falta_por_cobrar_lps), 'cobros');
+      var te = splitTaxEnv(s), taxLps = te.tax, envLps = te.env;
+      var cards = [
+        { id: 'inversion', ico: '💰', label: 'Inversión en inventario', value: fmtL(inversion), nav: 'productos' },
+        { id: 'venta', ico: '🏷️', label: 'Valor a precio de venta', value: fmtL(s.total_venta_lps), nav: 'productos' },
+        { id: 'ganancia', ico: '📈', label: 'Ganancia potencial', value: fmtL(ganancia), nav: 'hoja' },
+        { id: 'ganancia-real', ico: '💰', label: 'Ganancia real', value: fmtL(libre), nav: 'ganancia-real' },
+        { id: 'tax', ico: '🧾', label: 'Tax', value: fmtL(taxLps), nav: 'gastos' },
+        { id: 'envio', ico: '🚚', label: 'Envío', value: fmtL(envLps), nav: 'gastos' },
+        { id: 'margen', ico: '📊', label: 'Margen promedio', value: margen, nav: 'hoja' },
+        { id: 'comision', ico: '🤝', label: 'Comisión tía Wendy (45%)', value: fmtL(libre * 0.45), nav: 'hoja' },
+        { id: 'christian', ico: '👤', label: 'Christian (55%)', value: fmtL(libre * 0.55), nav: 'hoja' },
+        { id: 'perdidas', ico: '📉', label: 'Pérdidas', value: negL(s.total_perdidas_lps), nav: 'productos-lost' },
+        { id: 'descuentos', ico: '🔖', label: 'Descuentos (dejado de ganar)', value: negL(s.total_descuentos_lps), nav: 'productos' },
+        { id: 'cobrado', ico: '💵', label: 'Cobrado', value: fmtL(s.total_cobrado_lps), nav: 'cobros' },
+        { id: 'falta', ico: '📋', label: 'Falta por cobrar', value: fmtL(s.falta_por_cobrar_lps), nav: 'cobros' }
+      ];
+      box.innerHTML = orderCards(cards).map(profitCardHtml).join('');
+      enableCardReorder(box);
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
@@ -1489,17 +1519,119 @@
     var btn = document.querySelector('.tabbtn[data-tab="' + tab + '"]');
     if (btn) btn.click();
   }
-  function profitCard(ico, label, value, nav) {
-    return '<button type="button" class="profit-card" data-nav="' + nav + '">' +
-      '<span class="pc-ico">' + ico + '</span>' +
-      '<span class="pc-label">' + label + '</span>' +
-      '<span class="pc-value">' + value + '</span></button>';
+  function splitTaxEnv(s) {
+    var tax = 0, env = 0;
+    (s.expenses || []).forEach(function (e) {
+      var n = String(e.name || '').trim().toLowerCase();
+      var v = Number(e.amount_lps) || 0;
+      if (n === 'tax') tax += v;
+      else if (n === 'envío' || n === 'envio') env += v;
+    });
+    return { tax: tax, env: env };
+  }
+  function profitCardHtml(c) {
+    return '<button type="button" class="profit-card" data-card="' + c.id +
+      '" data-nav="' + c.nav + '">' +
+      '<span class="pc-ico">' + c.ico + '</span>' +
+      '<span class="pc-label">' + c.label + '</span>' +
+      '<span class="pc-value">' + c.value + '</span></button>';
+  }
+  /* Orden de las tarjetas: el usuario puede cambiarlo con presión larga. */
+  var CARD_ORDER_KEY = 'grafCardsOrder';
+  function getCardOrder() {
+    try { return JSON.parse(localStorage.getItem(CARD_ORDER_KEY)) || null; }
+    catch (e) { return null; }
+  }
+  function orderCards(cards) {
+    var saved = getCardOrder();
+    if (!saved || !saved.length) return cards;
+    var pos = {};
+    saved.forEach(function (id, i) { pos[id] = i; });
+    return cards.slice().sort(function (a, b) {
+      var pa = (a.id in pos) ? pos[a.id] : 1e9;
+      var pb = (b.id in pos) ? pos[b.id] : 1e9;
+      return pa - pb;
+    });
+  }
+  function saveCardOrder(box) {
+    try {
+      localStorage.setItem(CARD_ORDER_KEY, JSON.stringify(
+        Array.prototype.map.call(box.querySelectorAll('.profit-card'),
+          function (el) { return el.getAttribute('data-card'); })));
+    } catch (e) {}
+  }
+  /* Presión larga (0.45s) sobre una tarjeta: se "levanta" y se arrastra
+     para reordenar. Si se mueve el dedo antes, es scroll y no pasa nada. */
+  var pressTimer = null, pressCard = null, pressXY = null,
+      cardDrag = null, suppressCardClick = false;
+  function cancelPress() {
+    if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+    pressCard = null; pressXY = null;
+  }
+  function endCardDrag(commit) {
+    cancelPress();
+    if (!cardDrag) return;
+    var el = cardDrag.el;
+    cardDrag = null;
+    el.classList.remove('dragging');
+    el.style.transform = '';
+    if (commit) {
+      saveCardOrder($('summary-cards'));
+      suppressCardClick = true; // no abrir la tarjeta tras arrastrar
+      setTimeout(function () { suppressCardClick = false; }, 80);
+      notice('🔀 Orden guardado.');
+    }
+  }
+  function enableCardReorder(box) {
+    if (box.dataset.reorderOn) return;
+    box.dataset.reorderOn = '1';
+    box.addEventListener('pointerdown', function (e) {
+      var card = e.target && e.target.closest ? e.target.closest('.profit-card') : null;
+      if (!card) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pressCard = card;
+      pressXY = [e.clientX, e.clientY];
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(function () {
+        pressTimer = null;
+        if (!pressCard) return;
+        cardDrag = { el: pressCard, sx: pressXY[0], sy: pressXY[1] };
+        try { pressCard.setPointerCapture(e.pointerId); } catch (err) {}
+        pressCard.classList.add('dragging');
+        if (navigator.vibrate) { try { navigator.vibrate(40); } catch (e2) {} }
+      }, 450);
+    });
+    box.addEventListener('pointermove', function (e) {
+      if (pressTimer && pressXY) {
+        if (Math.hypot(e.clientX - pressXY[0], e.clientY - pressXY[1]) > 12) cancelPress();
+        return;
+      }
+      if (!cardDrag) return;
+      var dx = e.clientX - cardDrag.sx, dy = e.clientY - cardDrag.sy;
+      cardDrag.el.style.transform = 'translate(' + dx + 'px,' + dy + 'px) scale(1.06)';
+      cardDrag.el.style.visibility = 'hidden';
+      var under = document.elementFromPoint(e.clientX, e.clientY);
+      cardDrag.el.style.visibility = '';
+      var target = under && under.closest ? under.closest('.profit-card') : null;
+      if (target && target !== cardDrag.el && box.contains(target)) {
+        var r = target.getBoundingClientRect();
+        var cy = r.top + r.height / 2, cx = r.left + r.width / 2;
+        var after = (e.clientY > cy + r.height * 0.15) ||
+          (Math.abs(e.clientY - cy) <= r.height * 0.35 && e.clientX > cx);
+        if (after) target.after(cardDrag.el); else target.before(cardDrag.el);
+      }
+    });
+    box.addEventListener('pointerup', function () { endCardDrag(!!cardDrag); });
+    box.addEventListener('pointercancel', function () { endCardDrag(false); });
+    // Mientras se arrastra, el dedo no debe hacer scroll.
+    box.addEventListener('touchmove', function (e) { if (cardDrag) e.preventDefault(); }, { passive: false });
   }
 
   /* Tocar un cuadro lleva a los datos de donde sale ese número,
      manteniendo la inversión seleccionada en Gráficas. */
   function gotoCard(nav) {
     var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
+    if (nav === 'ganancia-real') { openRealProfit(); return; }
     if (nav === 'cobros') { openCobros(); return; }
     if (nav === 'hoja') {
       var sc = $('sheet-caja');
@@ -1515,6 +1647,7 @@
   }
   var summaryBox = $('summary-cards');
   if (summaryBox) summaryBox.addEventListener('click', function (e) {
+    if (suppressCardClick) return; // venía de arrastrar para reordenar
     var b = e.target.closest ? e.target.closest('.profit-card') : null;
     if (b && b.getAttribute('data-nav')) gotoCard(b.getAttribute('data-nav'));
   });
