@@ -280,6 +280,18 @@ def init_db():
         );
         """
     )
+    # Comisiones: pagos de comisión por caja (p. ej. tía Wendy), aparte de los cobros.
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS comisiones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            caja_id INTEGER NOT NULL,
+            amount_lps REAL NOT NULL DEFAULT 0,
+            note TEXT NOT NULL DEFAULT '',
+            created_at INTEGER NOT NULL DEFAULT 0
+        );
+        """
+    )
     # Migración: columnas nuevas en products y expenses (idempotente)
     pcols = [r["name"] for r in db.execute("PRAGMA table_info(products)").fetchall()]
     if "caja_id" not in pcols:
@@ -552,6 +564,16 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         cobros = db.execute("SELECT amount_lps FROM cobros").fetchall()
     total_cobrado_lps = sum((c["amount_lps"] or 0) for c in cobros)
     falta_por_cobrar_lps = total_venta_vendidos_lps - total_cobrado_lps
+    # Comisiones pagadas (aparte de los cobros).
+    if unassigned:
+        comisiones = []
+    elif caja_id:
+        comisiones = db.execute(
+            "SELECT amount_lps FROM comisiones WHERE caja_id=?", (caja_id,)
+        ).fetchall()
+    else:
+        comisiones = db.execute("SELECT amount_lps FROM comisiones").fetchall()
+    total_comisiones_lps = sum((c["amount_lps"] or 0) for c in comisiones)
     exp_usd = sum(e["amount_usd"] or 0 for e in expenses)
     exp_lps = sum(e["amount_lps"] or 0 for e in expenses)
     inversion_total_lps = total_costo_lps + exp_lps
@@ -596,6 +618,7 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         "total_venta_vendidos_lps": total_venta_vendidos_lps,
         "total_cobrado_lps": total_cobrado_lps,
         "falta_por_cobrar_lps": falta_por_cobrar_lps,
+        "total_comisiones_lps": total_comisiones_lps,
     }
 
 
@@ -1337,6 +1360,84 @@ def api_delete_cobro(bid):
     return jsonify({"ok": True})
 
 
+# ---------------- API: comisiones pagadas (aparte de los cobros) ----------------
+
+@app.route("/api/comisiones", methods=["GET"])
+def api_list_comisiones():
+    """Pagos de comisión por caja. ?caja_id= filtra por caja."""
+    db = get_db()
+    caja_id, err = _parse_caja_param(request.args.get("caja_id", ""))
+    if err:
+        return jsonify({"error": err}), 400
+    if caja_id:
+        rows = db.execute(
+            "SELECT b.id, b.caja_id, c.name AS caja_name, b.amount_lps,"
+            " b.note, b.created_at FROM comisiones b"
+            " LEFT JOIN cajas c ON c.id=b.caja_id"
+            " WHERE b.caja_id=? ORDER BY b.created_at DESC, b.id DESC",
+            (caja_id,),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT b.id, b.caja_id, c.name AS caja_name, b.amount_lps,"
+            " b.note, b.created_at FROM comisiones b"
+            " LEFT JOIN cajas c ON c.id=b.caja_id"
+            " ORDER BY b.created_at DESC, b.id DESC"
+        ).fetchall()
+    return jsonify([
+        {"id": r["id"], "caja_id": r["caja_id"], "caja_name": r["caja_name"],
+         "amount_lps": r["amount_lps"], "note": r["note"],
+         "created_at": r["created_at"]}
+        for r in rows
+    ])
+
+
+@app.route("/api/comisiones", methods=["POST"])
+def api_create_comision():
+    """Registra un pago de comisión: {"caja_id": 1, "amount_lps": 500, "note": "...", "fecha": "2026-10-04"}."""
+    data = request.get_json(silent=True) or {}
+    try:
+        caja_id = int(data.get("caja_id") or 0)
+    except (TypeError, ValueError):
+        caja_id = 0
+    if not caja_id:
+        return jsonify({"error": "Elige la caja del pago."}), 400
+    db = get_db()
+    if not db.execute("SELECT id FROM cajas WHERE id=?", (caja_id,)).fetchone():
+        return jsonify({"error": "Caja no encontrada."}), 404
+    try:
+        amount = float(data.get("amount_lps") or 0)
+    except (TypeError, ValueError):
+        return jsonify({"error": "El monto no es válido."}), 400
+    if amount <= 0:
+        return jsonify({"error": "El monto debe ser mayor que cero."}), 400
+    note = (data.get("note") or "").strip()[:120]
+    fecha = (data.get("fecha") or "").strip()
+    if fecha:
+        try:
+            dt = datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "La fecha no es válida."}), 400
+        created_at = calendar.timegm(dt.replace(hour=12).timetuple())
+    else:
+        created_at = int(time.time())
+    cur = db.execute(
+        "INSERT INTO comisiones(caja_id, amount_lps, note, created_at)"
+        " VALUES(?,?,?,?)",
+        (caja_id, amount, note, created_at),
+    )
+    db.commit()
+    return jsonify({"id": cur.lastrowid, "ok": True}), 201
+
+
+@app.route("/api/comisiones/<int:bid>", methods=["DELETE"])
+def api_delete_comision(bid):
+    db = get_db()
+    db.execute("DELETE FROM comisiones WHERE id=?", (bid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 # ---------------- API: resumen y hoja ----------------
 
 @app.route("/api/summary")
@@ -1366,6 +1467,7 @@ def api_summary():
             "total_venta_vendidos_lps": t["total_venta_vendidos_lps"],
             "total_cobrado_lps": t["total_cobrado_lps"],
             "falta_por_cobrar_lps": t["falta_por_cobrar_lps"],
+            "total_comisiones_lps": t["total_comisiones_lps"],
             "expenses": [
                 {"id": e["id"], "name": e["name"], "amount_usd": e["amount_usd"],
                  "amount_lps": e["amount_lps"]}
