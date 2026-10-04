@@ -730,13 +730,16 @@
         '<div class="cobros-total-row"><span>Vendido (a crédito o no)</span><b>' + fmtL(s.total_venta_vendidos_lps) + '</b></div>' +
         '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
         '<div class="cobros-total-row total"><span>📋 Falta por cobrar</span><b>' + fmtL(s.falta_por_cobrar_lps) + '</b></div>';
-      // Comisiones aparte: se restan de la comisión del 45%.
-      var comision45 = (s.ganancia_libre_total || 0) * 0.45;
+      // Comisiones aparte: se restan del total de ambas comisiones (45% + 55%).
+      var libreC = s.ganancia_libre_total || 0;
+      var comision45 = libreC * 0.45;
+      var comision55 = libreC * 0.55;
       var pagado = s.total_comisiones_lps || 0;
       ctotals.innerHTML =
         '<div class="cobros-total-row"><span>🤝 Comisión tía Wendy (45%)</span><b>' + fmtL(comision45) + '</b></div>' +
+        '<div class="cobros-total-row"><span>👤 Mi comisión (55%)</span><b>' + fmtL(comision55) + '</b></div>' +
         '<div class="cobros-total-row"><span>(−) Pagado</span><b>' + fmtL(pagado) + '</b></div>' +
-        '<div class="cobros-total-row total"><span>Falta por pagar</span><b>' + fmtL(comision45 - pagado) + '</b></div>';
+        '<div class="cobros-total-row total"><span>Falta por pagar</span><b>' + fmtL(comision45 + comision55 - pagado) + '</b></div>';
       clist.innerHTML = coms.length
         ? coms.map(function (b) { return pagoRow(b, 'comisiones'); }).join('')
         : '<p class="hint">Sin pagos de comisión registrados.</p>';
