@@ -645,6 +645,11 @@
   }
 
   /* Cobros: pagos recibidos por caja (ventas al crédito, en partes). */
+  function hoyISO() {
+    var d = new Date();
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
   function openCobros() {
     var sel = $('cobros-caja');
     var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
@@ -658,6 +663,7 @@
     }
     $('cobro-monto').value = '';
     $('cobro-nota').value = '';
+    $('cobro-fecha').value = hoyISO(); // automática, pero editable
     $('cobros-error').classList.add('hidden');
     $('cobros-modal').classList.remove('hidden');
     loadCobros();
@@ -1148,11 +1154,13 @@
         body: JSON.stringify({
           caja_id: Number(cajaId),
           amount_lps: monto,
-          note: $('cobro-nota').value.trim()
+          note: $('cobro-nota').value.trim(),
+          fecha: $('cobro-fecha').value
         })
       });
       $('cobro-monto').value = '';
       $('cobro-nota').value = '';
+      $('cobro-fecha').value = hoyISO();
       notice('💵 Cobro registrado.');
       loadCobros();
       loadSummary(); // refresca las tarjetas de Gráficas
