@@ -765,3 +765,53 @@ def test_perdida_no_cuenta_como_sin_precio(client):
     client.put("/api/products/%d/lost" % pid, json={"lost": False})
     assert client.get("/api/pending").get_json()["sin_precio"] == 1
     _clean_products(client)
+
+
+def test_discount_math_in_summary(client):
+    # Sin descuento: todo normal
+    r = client.post("/api/products", json={
+        "description": "Camisa", "purchase_usd": 10,
+        "cost_lps": 260, "sale_lps": 1000,
+    })
+    assert r.status_code == 201
+    pid = r.get_json()["id"]
+    # 25% de descuento
+    r = client.put(f"/api/products/{pid}", json={
+        "description": "Camisa", "purchase_usd": 10,
+        "cost_lps": 260, "sale_lps": 1000, "discount_pct": 25,
+    })
+    assert r.status_code == 200, r.get_json()
+    r = client.get(f"/api/products/{pid}")
+    p = r.get_json()
+    assert p["discount_pct"] == 25
+    assert p["sale_efectivo_lps"] == pytest.approx(750)
+    assert p["ganancia_libre"] == pytest.approx(750 - 260)
+    s = client.get("/api/summary").get_json()
+    assert s["total_venta_lps"] == pytest.approx(750)
+    assert s["total_descuentos_lps"] == pytest.approx(250)
+
+
+def test_discount_clamped_and_rejected(client):
+    r = client.post("/api/products", json={
+        "description": "Tenis", "sale_lps": 500, "discount_pct": 150,
+    })
+    assert r.status_code == 201
+    assert r.get_json()["discount_pct"] == 100
+    r = client.post("/api/products", json={
+        "description": "Gorra", "sale_lps": 500, "discount_pct": "mucho",
+    })
+    assert r.status_code == 400
+
+
+def test_perdida_ganancia_libre_negativa_aunque_tenga_precio(client):
+    # Una pérdida no genera ingresos: su ganancia libre es lo pagado en
+    # negativo, aunque tuviera precio de venta con descuento.
+    _clean_products(client)
+    pid = client.post("/api/products", json={
+        "description": "Perdido con precio", "cost_lps": 500,
+        "sale_lps": 1000, "discount_pct": 10}).get_json()["id"]
+    client.put(f"/api/products/{pid}/lost", json={"lost": True})
+    p = client.get(f"/api/products/{pid}").get_json()
+    assert p["lost"] is True
+    assert p["ganancia_libre"] == pytest.approx(-500)
+    _clean_products(client)
