@@ -45,6 +45,8 @@ import json
 import sqlite3
 import time
 import uuid
+import calendar
+from datetime import datetime
 
 from flask import (
     Flask, request, jsonify, render_template, g, Response,
@@ -1308,10 +1310,20 @@ def api_create_cobro():
     if amount <= 0:
         return jsonify({"error": "El monto debe ser mayor que cero."}), 400
     note = (data.get("note") or "").strip()[:120]
+    # Fecha automática (hoy), pero editable: si viene "YYYY-MM-DD" se usa esa.
+    fecha = (data.get("fecha") or "").strip()
+    if fecha:
+        try:
+            dt = datetime.strptime(fecha, "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "La fecha no es válida."}), 400
+        created_at = calendar.timegm(dt.replace(hour=12).timetuple())
+    else:
+        created_at = int(time.time())
     cur = db.execute(
         "INSERT INTO cobros(caja_id, amount_lps, note, created_at)"
         " VALUES(?,?,?,?)",
-        (caja_id, amount, note, int(time.time())),
+        (caja_id, amount, note, created_at),
     )
     db.commit()
     return jsonify({"id": cur.lastrowid, "ok": True}), 201
