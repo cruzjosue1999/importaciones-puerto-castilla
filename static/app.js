@@ -693,6 +693,10 @@
     $('cobro-monto').value = '';
     $('cobro-nota').value = '';
     $('cobro-fecha').value = hoyISO(); // automática, pero editable
+    $('comision-monto').value = '';
+    $('comision-nota').value = '';
+    $('comision-fecha').value = hoyISO();
+    $('comisiones-error').classList.add('hidden');
     $('cobros-error').classList.add('hidden');
     $('cobros-modal').classList.remove('hidden');
     loadCobros();
@@ -707,24 +711,37 @@
     var d = new Date(ts * 1000);
     return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
   }
-  function cobroRow(b) {
+  function pagoRow(b, kind) {
     return '<div class="cobro-row"><span class="cobro-main"><b>' + fmtL(b.amount_lps) + '</b>' +
       (b.note ? ' <span class="cobro-note">' + escapeHtml(b.note) + '</span>' : '') +
       ' <span class="cobro-date">' + fmtFechaCorta(b.created_at) + '</span></span>' +
-      '<button type="button" class="btn danger cobro-del" data-id="' + b.id + '">✕</button></div>';
+      '<button type="button" class="btn danger pago-del" data-kind="' + kind +
+      '" data-id="' + b.id + '">✕</button></div>';
   }
   async function loadCobros() {
     var list = $('cobros-list'), totals = $('cobros-totals');
+    var clist = $('comisiones-list'), ctotals = $('comisiones-totals');
     try {
       var q = cobroScope();
       var items = await api('/api/cobros' + q);
+      var coms = await api('/api/comisiones' + q);
       var s = await api('/api/summary' + q);
       totals.innerHTML =
         '<div class="cobros-total-row"><span>Vendido (a crédito o no)</span><b>' + fmtL(s.total_venta_vendidos_lps) + '</b></div>' +
         '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
         '<div class="cobros-total-row total"><span>📋 Falta por cobrar</span><b>' + fmtL(s.falta_por_cobrar_lps) + '</b></div>';
+      // Comisiones aparte: se restan de la comisión del 45%.
+      var comision45 = (s.ganancia_libre_total || 0) * 0.45;
+      var pagado = s.total_comisiones_lps || 0;
+      ctotals.innerHTML =
+        '<div class="cobros-total-row"><span>🤝 Comisión tía Wendy (45%)</span><b>' + fmtL(comision45) + '</b></div>' +
+        '<div class="cobros-total-row"><span>(−) Pagado</span><b>' + fmtL(pagado) + '</b></div>' +
+        '<div class="cobros-total-row total"><span>Falta por pagar</span><b>' + fmtL(comision45 - pagado) + '</b></div>';
+      clist.innerHTML = coms.length
+        ? coms.map(function (b) { return pagoRow(b, 'comisiones'); }).join('')
+        : '<p class="hint">Sin pagos de comisión registrados.</p>';
       list.innerHTML = items.length
-        ? items.map(cobroRow).join('')
+        ? items.map(function (b) { return pagoRow(b, 'cobros'); }).join('')
         : '<p class="hint">Sin cobros registrados en esta caja.</p>';
     } catch (e) { notice('No se pudieron cargar los cobros: ' + e.message, true); }
   }
@@ -1162,12 +1179,13 @@
   $('cobros-close').addEventListener('click', closeCobros);
   $('cobros-modal').addEventListener('click', function (e) { if (e.target === $('cobros-modal')) closeCobros(); });
   $('cobros-caja').addEventListener('change', loadCobros);
-  $('cobros-list').addEventListener('click', async function (e) {
-    var b = e.target && e.target.closest ? e.target.closest('.cobro-del') : null;
+  $('cobros-modal').addEventListener('click', async function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.pago-del') : null;
     if (!b) return;
-    if (!confirm('¿Eliminar este cobro?')) return;
+    if (!confirm('¿Eliminar este registro?')) return;
+    var kind = b.getAttribute('data-kind') === 'comisiones' ? 'comisiones' : 'cobros';
     try {
-      await api('/api/cobros/' + b.getAttribute('data-id'), { method: 'DELETE' });
+      await api('/api/' + kind + '/' + b.getAttribute('data-id'), { method: 'DELETE' });
       loadCobros();
       loadSummary();
     } catch (err) { notice('No se pudo eliminar: ' + err.message, true); }
@@ -1196,6 +1214,33 @@
       notice('💵 Cobro registrado.');
       loadCobros();
       loadSummary(); // refresca las tarjetas de Gráficas
+    } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
+  });
+  /* Formulario de comisiones (aparte de los cobros) */
+  $('comisiones-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var err = $('comisiones-error');
+    err.classList.add('hidden');
+    var monto = Number($('comision-monto').value) || 0;
+    if (monto <= 0) { err.textContent = 'Escribe el monto pagado.'; err.classList.remove('hidden'); return; }
+    var cajaId = $('cobros-caja').value;
+    if (!cajaId) { err.textContent = 'Elige la caja.'; err.classList.remove('hidden'); return; }
+    try {
+      await api('/api/comisiones', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caja_id: Number(cajaId),
+          amount_lps: monto,
+          note: $('comision-nota').value.trim(),
+          fecha: $('comision-fecha').value
+        })
+      });
+      $('comision-monto').value = '';
+      $('comision-nota').value = '';
+      $('comision-fecha').value = hoyISO();
+      notice('🤝 Pago de comisión registrado.');
+      loadCobros();
+      loadSummary();
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
   /* En "Similares", tocar el ⚠️ lleva al producto más caro del grupo. */
