@@ -348,6 +348,15 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .caja-box-sub { font-size: .72rem; color: var(--muted); }
 .caja-box-dates { display: block; font-size: .68rem; color: var(--muted); margin-top: 2px; text-align: center; line-height: 1.3; }
 .caja-box.active .caja-box-dates { color: #cbd5e1; }
+/* Cobros (ventas al crédito) */
+.cobros-totals { display: grid; gap: 4px; background: #f1f5f9; border-radius: 10px; padding: 10px 12px; margin: 10px 0; }
+.cobros-total-row { display: flex; justify-content: space-between; font-size: .85rem; }
+.cobros-total-row.total { font-weight: 700; font-size: .95rem; border-top: 1px solid var(--border); padding-top: 6px; margin-top: 2px; }
+.cobros-list { max-height: 38vh; overflow-y: auto; margin-bottom: 8px; }
+.cobro-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.cobro-note { color: var(--muted); font-size: .8rem; }
+.cobro-date { color: var(--muted); font-size: .75rem; }
+.cobro-del { padding: 4px 10px; }
 .caja-box.active { background: var(--navy); border-color: var(--navy); color: #fff; }
 .caja-box.active .caja-box-sub { color: #cbd5e1; }
 .caja-box.caja-add { border-style: dashed; color: var(--navy); }

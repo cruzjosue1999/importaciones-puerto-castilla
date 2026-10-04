@@ -919,3 +919,42 @@ def test_ganancia_libre_para_filtro_mas_250(client):
     assert alto["ganancia_libre"] == pytest.approx(500)
     assert bajo["ganancia_libre"] == pytest.approx(100)
     _clean_products(client)
+
+
+def test_cobros_suman_y_falta_por_cobrar(client):
+    # Ventas al crédito: los cobros se suman y el resumen dice lo que falta.
+    _clean_products(client)
+    pid = client.post("/api/products", json={
+        "description": "Vendido a crédito", "cost_lps": 200,
+        "sale_lps": 1000}).get_json()["id"]
+    client.put(f"/api/products/{pid}/sold", json={"sold": True})
+    cid = client.post("/api/cajas", json={"name": "Caja cobros"}).get_json()["id"]
+    # mover el producto a la caja para el cobro
+    p = client.get(f"/api/products/{pid}").get_json()
+    client.put(f"/api/products/{pid}", json={
+        "description": p["description"], "cost_lps": 200,
+        "sale_lps": 1000, "caja_id": cid})
+    r = client.post("/api/cobros", json={
+        "caja_id": cid, "amount_lps": 400, "note": "María, pago 1"})
+    assert r.status_code == 201
+    r = client.post("/api/cobros", json={"caja_id": cid, "amount_lps": 300})
+    assert r.status_code == 201
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_venta_vendidos_lps"] == pytest.approx(1000)
+    assert s["total_cobrado_lps"] == pytest.approx(700)
+    assert s["falta_por_cobrar_lps"] == pytest.approx(300)
+    items = client.get(f"/api/cobros?caja_id={cid}").get_json()
+    assert len(items) == 2
+    assert items[0]["note"] == ""
+    assert items[1]["note"] == "María, pago 1"
+    # monto inválido se rechaza
+    assert client.post("/api/cobros", json={"caja_id": cid, "amount_lps": 0}).status_code == 400
+    assert client.post("/api/cobros", json={"caja_id": 999999, "amount_lps": 10}).status_code == 404
+    # eliminar un cobro
+    assert client.delete(f"/api/cobros/{items[0]['id']}").status_code == 200
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_cobrado_lps"] == pytest.approx(400)
+    assert s["falta_por_cobrar_lps"] == pytest.approx(600)
+    _clean_products(client)
+    for b in client.get("/api/cobros").get_json():
+        client.delete(f"/api/cobros/{b['id']}")
