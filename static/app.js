@@ -308,9 +308,9 @@
     var numsHtml = numRow('Precio compra $', fmtD(p.purchase_usd)) +
       numRow('Pagado en LPS', fmtL(p.cost_lps));
     if (p.lost) {
-      // Pérdida: precio que se esperaba, ganancia libre y pérdida en rojo.
+      // Pérdida: precio que se esperaba, ganancia libre y pérdida (solo esta en rojo).
       numsHtml += numRow('Precio esperado de venta', fmtL(p.sale_lps)) +
-        numRow('Ganancia libre', '<span class="neg">' + fmtL(p.ganancia_libre) + '</span>', true) +
+        numRow('Ganancia libre', fmtL(p.ganancia_libre), true) +
         numRow('Pérdida', '<span class="neg">' + fmtL(-(Number(p.ganancia_libre) || 0)) + '</span>', true);
     } else if (disc > 0) {
       var perdidoDesc = ((Number(p.sale_lps) || 0) - (Number(p.sale_efectivo_lps) || 0)) * qty;
@@ -382,12 +382,31 @@
   /* ---------- Productos: buscador, filtros y vendidos ---------- */
   var productListCache = [];
   var prodSearch = '';
-  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio | lost
+  var prodChip = 'all'; // all | sold | pending | nophoto | noprecio | lost | similares
+
+  /* Descripción normalizada para detectar productos similares/duplicados. */
+  function normDesc(s) {
+    return String(s || '').toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, ' ').trim().replace(/\s+/g, ' ');
+  }
 
   function filteredProducts() {
     var q = prodSearch.trim().toLowerCase();
-    return productListCache.filter(function (p) {
+    var base = productListCache.filter(function (p) {
       if (q && String(p.description || '').toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+    if (prodChip === 'similares') {
+      // Solo productos cuya descripción normalizada aparece 2+ veces.
+      var counts = {};
+      base.forEach(function (p) {
+        var k = normDesc(p.description);
+        if (k) counts[k] = (counts[k] || 0) + 1;
+      });
+      return base.filter(function (p) { return counts[normDesc(p.description)] > 1; });
+    }
+    return base.filter(function (p) {
       if (prodChip === 'sold') return !!p.sold;
       if (prodChip === 'pending') return !p.sold && !p.lost;
       if (prodChip === 'nophoto') return !p.photo_url && !cajaExenta(p.caja_id, 'exenta_fotos');
@@ -422,12 +441,40 @@
     renderProducts();
   }
 
+  /* Grupos de productos con descripción similar: a la derecha se muestra
+     si lo pagado difiere entre ellos. */
+  function similarGroupsHtml(list) {
+    var groups = {}, order = [];
+    list.forEach(function (p) {
+      var k = normDesc(p.description);
+      if (!k) return;
+      if (!groups[k]) { groups[k] = { label: p.description, items: [] }; order.push(k); }
+      groups[k].items.push(p);
+    });
+    return order.map(function (k) {
+      var g = groups[k];
+      var pagos = g.items.map(function (p) { return Number(p.cost_lps) || 0; });
+      var min = Math.min.apply(null, pagos), max = Math.max.apply(null, pagos);
+      var head = '<div class="sim-head"><span class="sim-title">🔍 ' + escapeHtml(g.label) +
+        ' <span class="sim-count">(' + g.items.length + ')</span></span>';
+      if (max - min > 0.005) {
+        head += '<span class="sim-diff">⚠️ Pagado distinto: ' + fmtL(min) + ' – ' + fmtL(max) + '</span>';
+      } else {
+        head += '<span class="sim-ok">✓ Mismo pagado: ' + fmtL(max) + '</span>';
+      }
+      return '<div class="sim-group">' + head + '</div>' +
+        g.items.map(productCard).join('');
+    }).join('');
+  }
+
   function renderProducts() {
     var box = $('product-list');
     if (!box) return;
     var list = filteredProducts();
     $('no-products').classList.toggle('hidden', list.length > 0);
-    if (productFilter === 'all') {
+    if (prodChip === 'similares') {
+      box.innerHTML = similarGroupsHtml(list);
+    } else if (productFilter === 'all') {
       // "Todas": una tarjeta por caja (en el orden de la app) con sus productos adentro.
       var groups = [], seen = {};
       cajasCache.forEach(function (c) {
