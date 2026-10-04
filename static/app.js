@@ -644,6 +644,56 @@
     $('lost-modal').classList.add('hidden');
   }
 
+  /* Cobros: pagos recibidos por caja (ventas al crédito, en partes). */
+  function openCobros() {
+    var sel = $('cobros-caja');
+    var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
+    sel.innerHTML = cajasCache.map(function (c) {
+      return '<option value="' + c.id + '">' + escapeHtml(c.name) + '</option>';
+    }).join('');
+    if (cv !== 'all' && cajasCache.some(function (c) { return String(c.id) === String(cv); })) {
+      sel.value = cv;
+    } else if (cajasCache.length) {
+      sel.value = cajasCache[0].id;
+    }
+    $('cobro-monto').value = '';
+    $('cobro-nota').value = '';
+    $('cobros-error').classList.add('hidden');
+    $('cobros-modal').classList.remove('hidden');
+    loadCobros();
+  }
+  function closeCobros() { $('cobros-modal').classList.add('hidden'); }
+  function cobroScope() {
+    var v = $('cobros-caja').value;
+    return v ? '?caja_id=' + encodeURIComponent(v) : '';
+  }
+  function fmtFechaCorta(ts) {
+    if (!ts) return '';
+    var d = new Date(ts * 1000);
+    return d.getDate() + '/' + (d.getMonth() + 1) + '/' + d.getFullYear();
+  }
+  function cobroRow(b) {
+    return '<div class="cobro-row"><span class="cobro-main"><b>' + fmtL(b.amount_lps) + '</b>' +
+      (b.note ? ' <span class="cobro-note">' + escapeHtml(b.note) + '</span>' : '') +
+      ' <span class="cobro-date">' + fmtFechaCorta(b.created_at) + '</span></span>' +
+      '<button type="button" class="btn danger cobro-del" data-id="' + b.id + '">✕</button></div>';
+  }
+  async function loadCobros() {
+    var list = $('cobros-list'), totals = $('cobros-totals');
+    try {
+      var q = cobroScope();
+      var items = await api('/api/cobros' + q);
+      var s = await api('/api/summary' + q);
+      totals.innerHTML =
+        '<div class="cobros-total-row"><span>Vendido (a crédito o no)</span><b>' + fmtL(s.total_venta_vendidos_lps) + '</b></div>' +
+        '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
+        '<div class="cobros-total-row total"><span>📋 Falta por cobrar</span><b>' + fmtL(s.falta_por_cobrar_lps) + '</b></div>';
+      list.innerHTML = items.length
+        ? items.map(cobroRow).join('')
+        : '<p class="hint">Sin cobros registrados en esta caja.</p>';
+    } catch (e) { notice('No se pudieron cargar los cobros: ' + e.message, true); }
+  }
+
   /* Pinta botones e insignias de vendido/pérdida de una tarjeta en su lugar. */
   function paintStatus(card, p) {
     var sbtn = card.querySelector('.sold-btn');
@@ -1070,6 +1120,44 @@
   }
   excluyeDescuento('add-discount', 'add-discount-lps');
   excluyeDescuento('edit-discount', 'edit-discount-lps');
+  /* Modal de cobros */
+  $('cobros-close').addEventListener('click', closeCobros);
+  $('cobros-modal').addEventListener('click', function (e) { if (e.target === $('cobros-modal')) closeCobros(); });
+  $('cobros-caja').addEventListener('change', loadCobros);
+  $('cobros-list').addEventListener('click', async function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('.cobro-del') : null;
+    if (!b) return;
+    if (!confirm('¿Eliminar este cobro?')) return;
+    try {
+      await api('/api/cobros/' + b.getAttribute('data-id'), { method: 'DELETE' });
+      loadCobros();
+      loadSummary();
+    } catch (err) { notice('No se pudo eliminar: ' + err.message, true); }
+  });
+  $('cobros-form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var err = $('cobros-error');
+    err.classList.add('hidden');
+    var monto = Number($('cobro-monto').value) || 0;
+    if (monto <= 0) { err.textContent = 'Escribe el monto recibido.'; err.classList.remove('hidden'); return; }
+    var cajaId = $('cobros-caja').value;
+    if (!cajaId) { err.textContent = 'Elige la caja.'; err.classList.remove('hidden'); return; }
+    try {
+      await api('/api/cobros', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          caja_id: Number(cajaId),
+          amount_lps: monto,
+          note: $('cobro-nota').value.trim()
+        })
+      });
+      $('cobro-monto').value = '';
+      $('cobro-nota').value = '';
+      notice('💵 Cobro registrado.');
+      loadCobros();
+      loadSummary(); // refresca las tarjetas de Gráficas
+    } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
+  });
   /* En "Similares", tocar el ⚠️ lleva al producto más caro del grupo. */
   $('product-list').addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('.sim-diff-btn') : null;
@@ -1381,7 +1469,9 @@
         profitCard('🤝', 'Comisión tía Wendy (45%)', fmtL(libre * 0.45), 'hoja') +
         profitCard('👤', 'Christian (55%)', fmtL(libre * 0.55), 'hoja') +
         profitCard('📉', 'Pérdidas', negL(s.total_perdidas_lps), 'productos-lost') +
-        profitCard('🔖', 'Descuentos (dejado de ganar)', negL(s.total_descuentos_lps), 'productos');
+        profitCard('🔖', 'Descuentos (dejado de ganar)', negL(s.total_descuentos_lps), 'productos') +
+        profitCard('💵', 'Cobrado', fmtL(s.total_cobrado_lps), 'cobros') +
+        profitCard('📋', 'Falta por cobrar', fmtL(s.falta_por_cobrar_lps), 'cobros');
       drawDonut(s);
     } catch (e) { notice('No se pudo cargar el resumen: ' + e.message, true); }
     loadCompare();
@@ -1402,6 +1492,7 @@
      manteniendo la inversión seleccionada en Gráficas. */
   function gotoCard(nav) {
     var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
+    if (nav === 'cobros') { openCobros(); return; }
     if (nav === 'hoja') {
       var sc = $('sheet-caja');
       if (sc) sc.value = cv;
