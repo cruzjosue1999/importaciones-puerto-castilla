@@ -2083,7 +2083,9 @@
   window.addEventListener('afterprint', function () {
     document.body.classList.remove('print-graficas');
   });
-  /* PDF por páginas: igual que en la app, se desplaza hacia abajo/arriba. */
+  /* PDF por bloques completos: cada hoja lleva secciones enteras (tarjetas,
+     gráfica, leyenda, comparador) sin cortar nada a la mitad. Alta resolución
+     para que el texto no se vea borroso. */
   $('share-charts-img').addEventListener('click', async function () {
     closeShareCharts();
     if (!window.htmlToImage || !window.htmlToImage.toCanvas) {
@@ -2098,24 +2100,73 @@
     var btn = $('btn-share-charts');
     btn.classList.add('hidden');
     try {
-      var node = $('tab-graficas');
       var bg = '#f2f4f7';
       try { bg = window.getComputedStyle(document.body).backgroundColor || bg; } catch (e0) {}
-      var src = await window.htmlToImage.toCanvas(node, { pixelRatio: 1.5, backgroundColor: bg });
-      var pageW = src.width;
-      var pageH = Math.round(pageW * 1.4142); // proporción A4 por página
-      var pdf = new window.jspdf.jsPDF({ unit: 'px', format: [pageW, pageH], hotfixes: ['px_scaling'] });
-      var first = true;
-      for (var y = 0; y < src.height; y += pageH) {
-        var h = Math.min(pageH, src.height - y);
-        var c = document.createElement('canvas');
-        c.width = pageW;
-        c.height = h;
-        c.getContext('2d').drawImage(src, 0, y, pageW, h, 0, 0, pageW, h);
-        if (!first) pdf.addPage([pageW, pageH]);
-        first = false;
-        pdf.addImage(c.toDataURL('image/png'), 'PNG', 0, 0, pageW, h);
+      function visible(el) { return el && !el.classList.contains('hidden') && el.offsetHeight > 4; }
+      // Unidades: cada una viaja junta en la misma hoja, nunca partida.
+      var units = [];
+      var head = document.querySelector('#tab-graficas .charts-head');
+      if (visible(head)) units.push([head]);
+      Array.prototype.forEach.call(document.querySelectorAll('#summary-cards > *'), function (card) {
+        if (visible(card)) units.push([card]);
+      });
+      var chartBits = [];
+      if (visible($('chart-donut'))) chartBits.push($('chart-donut'));
+      if (visible($('legend-donut'))) chartBits.push($('legend-donut'));
+      if (chartBits.length) units.push(chartBits);
+      if (visible($('compare-box'))) units.push([$('compare-box')]);
+      if (visible($('pending-rows'))) units.push([$('pending-rows')]);
+      if (!units.length) throw new Error('No hay contenido para compartir.');
+      var PR = 2; // alta resolución: el texto queda nítido
+      var gap = Math.round(14 * PR), margin = Math.round(16 * PR);
+      var unitCanvases = [];
+      for (var u = 0; u < units.length; u++) {
+        var parts = [];
+        for (var k = 0; k < units[u].length; k++) {
+          parts.push(await window.htmlToImage.toCanvas(units[u][k], { pixelRatio: PR, backgroundColor: bg }));
+        }
+        var uw = 0, uh = 0, kk;
+        for (kk = 0; kk < parts.length; kk++) { uw = Math.max(uw, parts[kk].width); uh += parts[kk].height; }
+        uh += gap * (parts.length - 1);
+        var uc = document.createElement('canvas');
+        uc.width = uw; uc.height = uh;
+        var ux = uc.getContext('2d');
+        ux.fillStyle = bg; ux.fillRect(0, 0, uw, uh);
+        var oy = 0;
+        for (kk = 0; kk < parts.length; kk++) {
+          ux.drawImage(parts[kk], Math.round((uw - parts[kk].width) / 2), oy);
+          oy += parts[kk].height + gap;
+        }
+        unitCanvases.push(uc);
       }
+      var pageW = unitCanvases[0].width;
+      var pageH = Math.round(pageW * 1.4142); // proporción A4
+      var pdf = new window.jspdf.jsPDF({ unit: 'px', format: [pageW, pageH], hotfixes: ['px_scaling'] });
+      var page = null, py = 0, firstPage = true;
+      function newPage() {
+        var c = document.createElement('canvas');
+        c.width = pageW; c.height = pageH;
+        var x = c.getContext('2d');
+        x.fillStyle = bg; x.fillRect(0, 0, pageW, pageH);
+        return { c: c, x: x };
+      }
+      function flushPage() {
+        if (!firstPage) pdf.addPage([pageW, pageH]);
+        firstPage = false;
+        pdf.addImage(page.c.toDataURL('image/png'), 'PNG', 0, 0, pageW, pageH);
+        page = null;
+      }
+      for (var j = 0; j < unitCanvases.length; j++) {
+        var bc = unitCanvases[j];
+        if (!page || py + bc.height > pageH - margin) {
+          if (page) flushPage();
+          page = newPage();
+          py = margin;
+        }
+        page.x.drawImage(bc, Math.round((pageW - bc.width) / 2), py);
+        py += bc.height + gap;
+      }
+      if (page) flushPage();
       var blob = pdf.output('blob');
       var file = new File([blob], 'ganancias.pdf', { type: 'application/pdf' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
