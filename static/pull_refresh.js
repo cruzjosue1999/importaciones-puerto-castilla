@@ -7,6 +7,8 @@
   var THRESHOLD = 80;   // px para soltar y recargar
   var MAX_PULL = 150;   // tope visual del indicador
   var startY = null;
+  var startX = null;
+  var horizontal = false; // el gesto va de lado: no es pull-to-refresh
   var state = 'idle';   // idle | pulling | ready | reloading
   var ind = null;
 
@@ -66,16 +68,28 @@
 
   document.addEventListener('touchstart', function (e) {
     if (state === 'reloading') return;
-    if (overlayOpen()) { startY = null; return; }
-    if (scrollingEl().scrollTop > 0) { startY = null; return; }
-    if (e.touches.length === 1) startY = e.touches[0].clientY;
+    if (overlayOpen()) { startY = null; startX = null; return; }
+    if (scrollingEl().scrollTop > 0) { startY = null; startX = null; return; }
+    if (e.touches.length === 1) {
+      startY = e.touches[0].clientY;
+      startX = e.touches[0].clientX;
+      horizontal = false;
+    }
   }, { passive: true });
 
   document.addEventListener('touchmove', function (e) {
     if (startY === null || state === 'reloading') return;
-    if (overlayOpen()) { startY = null; hide(); return; }
-    var dy = e.touches[0].clientY - startY;
-    if (dy > 8 && scrollingEl().scrollTop <= 0) {
+    if (overlayOpen()) { startY = null; startX = null; hide(); return; }
+    var t = e.touches[0];
+    var dy = t.clientY - startY;
+    var dx = t.clientX - startX;
+    // Si el gesto va de lado (como deslizar los filtros), no es pull:
+    // se bloquea por el resto del gesto.
+    if (!horizontal && Math.abs(dx) > 12 && Math.abs(dx) > Math.abs(dy)) {
+      horizontal = true;
+    }
+    if (horizontal) { startY = null; startX = null; hide(); return; }
+    if (dy > 8 && Math.abs(dy) > Math.abs(dx) && scrollingEl().scrollTop <= 0) {
       setPull(dy);
     } else if (dy <= 0) {
       hide();
@@ -86,6 +100,8 @@
   function end() {
     if (startY === null) return;
     startY = null;
+    startX = null;
+    horizontal = false;
     if (state === 'ready') {
       state = 'reloading';
       var el = ensureIndicator();
@@ -115,5 +131,7 @@
     }
   }
   document.addEventListener('touchend', end, { passive: true });
-  document.addEventListener('touchcancel', function () { startY = null; hide(); }, { passive: true });
+  document.addEventListener('touchcancel', function () {
+    startY = null; startX = null; horizontal = false; hide();
+  }, { passive: true });
 })();
