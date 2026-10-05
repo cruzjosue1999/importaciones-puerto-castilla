@@ -1,5 +1,5 @@
 /* Service Worker - Importaciones a Puerto Castilla */
-var CACHE = 'importaciones-v44';
+var CACHE = 'importaciones-v45';
 var ASSETS = [
   '/',
   '/static/style.css?v=7',
