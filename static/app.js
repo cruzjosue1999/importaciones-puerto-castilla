@@ -1598,30 +1598,46 @@
 
   function drawDonut(s) {
     var box = $('chart-donut'), leg = $('legend-donut');
-    var inv = s.total_costo_lps || 0, prof = (s.total_venta_lps || 0) - inv;
-    var total = inv + Math.max(prof, 0);
+    // La dona reparte el valor de venta en sus partes reales:
+    // inversión + Tax + Envío + comisión 45% + Christian 55%.
+    var te = splitTaxEnv(s);
+    var inv = s.total_costo_lps || 0;
+    var libre = s.ganancia_libre_total || 0;
+    var segs = [
+      { color: '#0a2a5e', label: 'Inversión en productos', value: inv },
+      { color: '#94a3b8', label: 'Tax', value: te.tax },
+      { color: '#f97316', label: 'Envío', value: te.env },
+      { color: '#22c55e', label: 'Comisión tía Wendy (45%)', value: libre * 0.45 },
+      { color: '#3b82f6', label: 'Christian (55%)', value: libre * 0.55 }
+    ].filter(function (g) { return g.value > 0; });
+    var total = segs.reduce(function (a, g) { return a + g.value; }, 0);
     if (total <= 0) {
       box.innerHTML = '<p class="hint">Aún no hay inventario con valor.</p>';
       leg.innerHTML = '';
       return;
     }
     var r = 62, circ = 2 * Math.PI * r;
-    var invLen = inv / total * circ;
+    var GAP = 3 / 360 * circ; // separación entre cada parte
+    var acc = 0, circles = '';
+    segs.forEach(function (g) {
+      var len = g.value / total * circ;
+      var draw = Math.max(len - GAP, 0.5);
+      circles += '<circle cx="85" cy="85" r="' + r + '" fill="none" stroke="' + g.color +
+        '" stroke-width="28" stroke-dasharray="' + draw.toFixed(2) + ' ' + circ.toFixed(2) +
+        '" stroke-dashoffset="' + (-acc).toFixed(2) + '" transform="rotate(-90 85 85)"/>';
+      acc += len;
+    });
     box.innerHTML =
-      '<svg viewBox="0 0 170 170" class="donut" role="img" aria-label="Inversión versus ganancia potencial">' +
+      '<svg viewBox="0 0 170 170" class="donut" role="img" aria-label="Reparto del valor de venta">' +
       '<circle cx="85" cy="85" r="' + r + '" fill="none" stroke="#e5e7eb" stroke-width="28"/>' +
-      '<circle cx="85" cy="85" r="' + r + '" fill="none" stroke="#0a2a5e" stroke-width="28"' +
-      ' stroke-dasharray="' + invLen.toFixed(2) + ' ' + circ.toFixed(2) + '" transform="rotate(-90 85 85)"/>' +
-      '<circle cx="85" cy="85" r="' + r + '" fill="none" stroke="#f0b429" stroke-width="28"' +
-      ' stroke-dasharray="' + (circ - invLen).toFixed(2) + ' ' + circ.toFixed(2) + '"' +
-      ' stroke-dashoffset="' + (-invLen).toFixed(2) + '" transform="rotate(-90 85 85)"/>' +
+      circles +
       '<text x="85" y="82" text-anchor="middle" class="donut-num">' + fmtL(total) + '</text>' +
       '<text x="85" y="100" text-anchor="middle" class="donut-lbl">Valor del inventario</text>' +
       '</svg>';
-    leg.innerHTML = legendHtml([
-      { color: '#0a2a5e', label: 'Inversión en productos', amount: fmtL(inv), pct: Math.round(inv / total * 100) },
-      { color: '#f0b429', label: 'Ganancia potencial', amount: fmtL(prof), pct: Math.round(Math.max(prof, 0) / total * 100) }
-    ]);
+    leg.innerHTML = legendHtml(segs.map(function (g) {
+      return { color: g.color, label: g.label, amount: fmtL(g.value),
+               pct: Math.round(g.value / total * 100) };
+    }));
   }
 
   async function loadSummary() {
