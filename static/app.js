@@ -355,7 +355,7 @@
     }
     return '<article class="card" data-id="' + p.id + '">' +
       '<button type="button" class="card-toggle">' +
-      '<span class="card-toggle-title">' + '<span class="inv-chip">#' + p.id + '</span>' + escapeHtml(p.description) +
+      '<span class="card-toggle-title">' + '<span class="inv-chip">#' + (p.inv_number || p.id) + '</span>' + escapeHtml(p.description) +
       (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') +
       (p.lost === 1 ? '<span class="lost-badge">PÉRDIDA</span>' : '') +
       (p.lost === 2 ? '<span class="rec-badge">RECUPERADO</span>' : '') + '</span>' +
@@ -665,7 +665,7 @@
         ctx.textBaseline = 'middle';
         var cy = by + bh / 2;
         ctx.textAlign = 'left';
-        ctx.fillText('#' + p.id, bx + m, cy);
+        ctx.fillText('#' + (p.inv_number || p.id), bx + m, cy);
         var price = Number(p.sale_efectivo_lps) || Number(p.sale_lps) || 0;
         ctx.textAlign = 'right';
         ctx.fillText(fmtL(price), bx + bw - m, cy);
@@ -1186,7 +1186,7 @@
           body: JSON.stringify(body)
         });
         $('add-form').reset(); addPhoto.reset();
-        notice('✅ Producto #' + (created && created.id ? created.id : '') + ' guardado.');
+        notice('✅ Producto #' + (created && (created.inv_number || created.id) ? (created.inv_number || created.id) : '') + ' guardado.');
         loadProducts();
       } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
       return;
