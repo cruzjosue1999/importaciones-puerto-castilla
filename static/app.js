@@ -698,6 +698,11 @@
     $('comision-fecha').value = hoyISO();
     $('comisiones-error').classList.add('hidden');
     $('cobros-error').classList.add('hidden');
+    pagoEdit = null;
+    $('cobro-submit').textContent = 'Agregar cobro';
+    $('comision-submit').textContent = 'Agregar pago';
+    $('cobro-cancel-edit').classList.add('hidden');
+    $('comision-cancel-edit').classList.add('hidden');
     $('cobros-modal').classList.remove('hidden');
     loadCobros();
   }
@@ -715,8 +720,57 @@
     return '<div class="cobro-row"><span class="cobro-main"><b>' + fmtL(b.amount_lps) + '</b>' +
       (b.note ? ' <span class="cobro-note">' + escapeHtml(b.note) + '</span>' : '') +
       ' <span class="cobro-date">' + fmtFechaCorta(b.created_at) + '</span></span>' +
+      '<span class="cobro-actions">' +
+      '<button type="button" class="btn pago-edit" data-kind="' + kind + '" data-id="' + b.id + '">✏️</button>' +
       '<button type="button" class="btn danger pago-del" data-kind="' + kind +
-      '" data-id="' + b.id + '">✕</button></div>';
+      '" data-id="' + b.id + '">✕</button></span></div>';
+  }
+  /* Edición de pagos: se precarga el formulario y se guarda con PUT. */
+  var cobrosCache = [], comisionesCache = [], pagoEdit = null;
+  function pagoFormIds(kind) {
+    return kind === 'comisiones'
+      ? { fecha: 'comision-fecha', monto: 'comision-monto', nota: 'comision-nota',
+          err: 'comisiones-error', submit: 'comision-submit', cancel: 'comision-cancel-edit',
+          addLabel: 'Agregar pago' }
+      : { fecha: 'cobro-fecha', monto: 'cobro-monto', nota: 'cobro-nota',
+          err: 'cobros-error', submit: 'cobro-submit', cancel: 'cobro-cancel-edit',
+          addLabel: 'Agregar cobro' };
+  }
+  function fechaInputISO(ts) {
+    var d = ts ? new Date(ts * 1000) : new Date();
+    function p(n) { return (n < 10 ? '0' : '') + n; }
+    return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+  }
+  function startPagoEdit(kind, id) {
+    var cache = kind === 'comisiones' ? comisionesCache : cobrosCache;
+    var b = null;
+    for (var i = 0; i < cache.length; i++) {
+      if (String(cache[i].id) === String(id)) { b = cache[i]; break; }
+    }
+    if (!b) return;
+    var F = pagoFormIds(kind);
+    $(F.fecha).value = fechaInputISO(b.created_at);
+    $(F.monto).value = b.amount_lps;
+    $(F.nota).value = b.note || '';
+    $(F.err).classList.add('hidden');
+    $(F.submit).textContent = '💾 Guardar cambios';
+    $(F.cancel).classList.remove('hidden');
+    pagoEdit = { kind: kind, id: b.id };
+    var formEl = $(kind === 'comisiones' ? 'comisiones-form' : 'cobros-form');
+    if (formEl && formEl.scrollIntoView) {
+      try { formEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } catch (e) {}
+    }
+  }
+  function cancelPagoEdit() {
+    if (!pagoEdit) return;
+    var F = pagoFormIds(pagoEdit.kind);
+    $(F.monto).value = '';
+    $(F.nota).value = '';
+    $(F.fecha).value = hoyISO();
+    $(F.err).classList.add('hidden');
+    $(F.submit).textContent = F.addLabel;
+    $(F.cancel).classList.add('hidden');
+    pagoEdit = null;
   }
   async function loadCobros() {
     var list = $('cobros-list'), totals = $('cobros-totals');
@@ -726,6 +780,8 @@
       var items = await api('/api/cobros' + q);
       var coms = await api('/api/comisiones' + q);
       var s = await api('/api/summary' + q);
+      cobrosCache = items;
+      comisionesCache = coms;
       totals.innerHTML =
         '<div class="cobros-total-row"><span>Vendido (a crédito o no)</span><b>' + fmtL(s.total_venta_vendidos_lps) + '</b></div>' +
         '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
@@ -1191,16 +1247,26 @@
   $('cobros-modal').addEventListener('click', function (e) { if (e.target === $('cobros-modal')) closeCobros(); });
   $('cobros-caja').addEventListener('change', loadCobros);
   $('cobros-modal').addEventListener('click', async function (e) {
+    var ed = e.target && e.target.closest ? e.target.closest('.pago-edit') : null;
+    if (ed) {
+      startPagoEdit(ed.getAttribute('data-kind') === 'comisiones' ? 'comisiones' : 'cobros',
+        ed.getAttribute('data-id'));
+      return;
+    }
     var b = e.target && e.target.closest ? e.target.closest('.pago-del') : null;
     if (!b) return;
     if (!confirm('¿Eliminar este registro?')) return;
     var kind = b.getAttribute('data-kind') === 'comisiones' ? 'comisiones' : 'cobros';
+    var delId = b.getAttribute('data-id');
     try {
-      await api('/api/' + kind + '/' + b.getAttribute('data-id'), { method: 'DELETE' });
+      await api('/api/' + kind + '/' + delId, { method: 'DELETE' });
+      if (pagoEdit && String(pagoEdit.id) === String(delId)) cancelPagoEdit();
       loadCobros();
       loadSummary();
     } catch (err) { notice('No se pudo eliminar: ' + err.message, true); }
   });
+  $('cobro-cancel-edit').addEventListener('click', cancelPagoEdit);
+  $('comision-cancel-edit').addEventListener('click', cancelPagoEdit);
   $('cobros-form').addEventListener('submit', async function (e) {
     e.preventDefault();
     var err = $('cobros-error');
@@ -1209,20 +1275,34 @@
     if (monto <= 0) { err.textContent = 'Escribe el monto recibido.'; err.classList.remove('hidden'); return; }
     var cajaId = $('cobros-caja').value;
     if (!cajaId) { err.textContent = 'Elige la caja.'; err.classList.remove('hidden'); return; }
+    var editing = pagoEdit && pagoEdit.kind === 'cobros';
     try {
-      await api('/api/cobros', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caja_id: Number(cajaId),
-          amount_lps: monto,
-          note: $('cobro-nota').value.trim(),
-          fecha: $('cobro-fecha').value
-        })
-      });
+      if (editing) {
+        await api('/api/cobros/' + pagoEdit.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount_lps: monto,
+            note: $('cobro-nota').value.trim(),
+            fecha: $('cobro-fecha').value
+          })
+        });
+        notice('✏️ Cobro actualizado.');
+      } else {
+        await api('/api/cobros', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            caja_id: Number(cajaId),
+            amount_lps: monto,
+            note: $('cobro-nota').value.trim(),
+            fecha: $('cobro-fecha').value
+          })
+        });
+        notice('💵 Cobro registrado.');
+      }
+      cancelPagoEdit();
       $('cobro-monto').value = '';
       $('cobro-nota').value = '';
       $('cobro-fecha').value = hoyISO();
-      notice('💵 Cobro registrado.');
       loadCobros();
       loadSummary(); // refresca las tarjetas de Gráficas
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
@@ -1236,20 +1316,34 @@
     if (monto <= 0) { err.textContent = 'Escribe el monto pagado.'; err.classList.remove('hidden'); return; }
     var cajaId = $('cobros-caja').value;
     if (!cajaId) { err.textContent = 'Elige la caja.'; err.classList.remove('hidden'); return; }
+    var editing = pagoEdit && pagoEdit.kind === 'comisiones';
     try {
-      await api('/api/comisiones', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          caja_id: Number(cajaId),
-          amount_lps: monto,
-          note: $('comision-nota').value.trim(),
-          fecha: $('comision-fecha').value
-        })
-      });
+      if (editing) {
+        await api('/api/comisiones/' + pagoEdit.id, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amount_lps: monto,
+            note: $('comision-nota').value.trim(),
+            fecha: $('comision-fecha').value
+          })
+        });
+        notice('✏️ Pago actualizado.');
+      } else {
+        await api('/api/comisiones', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            caja_id: Number(cajaId),
+            amount_lps: monto,
+            note: $('comision-nota').value.trim(),
+            fecha: $('comision-fecha').value
+          })
+        });
+        notice('🤝 Pago de comisión registrado.');
+      }
+      cancelPagoEdit();
       $('comision-monto').value = '';
       $('comision-nota').value = '';
       $('comision-fecha').value = hoyISO();
-      notice('🤝 Pago de comisión registrado.');
       loadCobros();
       loadSummary();
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
