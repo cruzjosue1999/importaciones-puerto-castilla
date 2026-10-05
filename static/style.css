@@ -315,6 +315,27 @@ table.sheet tr.grand td { background: #e0e7ff; }
   .sheet-card-head .chev, .sheet-card-meta { display: none; }
 }
 
+/* ---- Impresión de Gráficas tal como se ve ---- */
+@media print {
+  body.print-graficas #tab-hoja,
+  body.print-graficas #tab-hoja::before { display: none !important; }
+  body.print-graficas #tab-graficas { display: block !important; }
+  body.print-graficas #tab-graficas::before {
+    content: "Importaciones a Puerto Castilla — Ganancias · " attr(data-scope);
+    display: block; font-size: 18px; font-weight: 700; margin-bottom: 10px;
+  }
+  body.print-graficas #tab-graficas > h2 { display: none; }
+  body.print-graficas .profit-card {
+    box-shadow: none; border: 1px solid #ddd; break-inside: avoid;
+  }
+  body.print-graficas .profit-card,
+  body.print-graficas .donut,
+  body.print-graficas .leg-row .sw,
+  body.print-graficas .cmp-fill {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+}
+
 /* Crear inversión desde Productos */
 #inv-create { margin-bottom: 12px; }
 #inv-create h3 { margin: 0 0 10px; font-size: 16px; }
