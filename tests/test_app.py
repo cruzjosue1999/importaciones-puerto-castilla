@@ -1032,3 +1032,46 @@ def test_editar_pago_recibido(client):
     assert client.put(f"/api/comisiones/{mid}", json={"amount_lps": 150}).status_code == 200
     s = client.get(f"/api/summary?caja_id={cid}").get_json()
     assert s["total_comisiones_lps"] == pytest.approx(150)
+
+
+# ---------- número de inventario ----------
+def _mk_caja(client, name):
+    r = client.post("/api/cajas", json={"name": name})
+    assert r.status_code in (200, 201), r.get_data(as_text=True)
+    return r.get_json()["id"]
+
+
+def _mk_prod(client, desc, caja_id=None):
+    body = {"description": desc, "purchase_usd": 10, "cost_lps": 250,
+            "sale_lps": 500}
+    if caja_id is not None:
+        body["caja_id"] = caja_id
+    r = client.post("/api/products", json=body)
+    assert r.status_code == 201, r.get_data(as_text=True)
+    return r.get_json()
+
+
+def test_inv_number_sigue_orden_de_cajas(client):
+    # La segunda caja se crea primero, pero la primera debe numerar 1..N.
+    caja2 = _mk_caja(client, "Segunda")
+    caja1 = _mk_caja(client, "Primera")
+    # Mover "Primera" antes que "Segunda" en el orden de cajas.
+    r = client.put(f"/api/cajas/{caja1}", json={"sort_order": 0})
+    assert r.status_code == 200
+    r = client.put(f"/api/cajas/{caja2}", json={"sort_order": 1})
+    assert r.status_code == 200
+    # Productos agregados "al revés": primero a la segunda caja.
+    p2a = _mk_prod(client, "Prod segunda A", caja2)
+    p2b = _mk_prod(client, "Prod segunda B", caja2)
+    p1a = _mk_prod(client, "Prod primera A", caja1)
+    assert p1a["inv_number"] == 1
+    assert p2a["inv_number"] == 2
+    assert p2b["inv_number"] == 3
+    # Sin caja van al final.
+    ps = _mk_prod(client, "Sin caja")
+    assert ps["inv_number"] == 4
+    # La lista también trae el número.
+    prods = client.get("/api/products").get_json()
+    nums = {p["description"]: p["inv_number"] for p in prods}
+    assert nums == {"Prod primera A": 1, "Prod segunda A": 2,
+                    "Prod segunda B": 3, "Sin caja": 4}
