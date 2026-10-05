@@ -1003,3 +1003,32 @@ def test_comisiones_se_restan_aparte(client):
     assert client.delete(f"/api/comisiones/{items[0]['id']}").status_code == 200
     s = client.get(f"/api/summary?caja_id={cid}").get_json()
     assert s["total_comisiones_lps"] == pytest.approx(0)
+
+
+def test_editar_pago_recibido(client):
+    # Los pagos recibidos se pueden editar (monto, nota, fecha).
+    _clean_products(client)
+    cid = client.post("/api/cajas", json={"name": "Caja editar"}).get_json()["id"]
+    rid = client.post("/api/cobros", json={
+        "caja_id": cid, "amount_lps": 500, "note": "nota vieja"}).get_json()["id"]
+    r = client.put(f"/api/cobros/{rid}", json={
+        "amount_lps": 750, "note": "nota nueva", "fecha": "2026-09-01"})
+    assert r.status_code == 200
+    items = client.get(f"/api/cobros?caja_id={cid}").get_json()
+    assert items[0]["amount_lps"] == pytest.approx(750)
+    assert items[0]["note"] == "nota nueva"
+    d = datetime.datetime.fromtimestamp(items[0]["created_at"],
+                                       datetime.timezone.utc)
+    assert (d.year, d.month, d.day) == (2026, 9, 1)
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_cobrado_lps"] == pytest.approx(750)
+    # validaciones
+    assert client.put(f"/api/cobros/{rid}", json={"amount_lps": 0}).status_code == 400
+    assert client.put(f"/api/cobros/{rid}", json={"fecha": "mal"}).status_code == 400
+    assert client.put("/api/cobros/999999", json={"amount_lps": 10}).status_code == 404
+    # también las comisiones
+    mid = client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 100}).get_json()["id"]
+    assert client.put(f"/api/comisiones/{mid}", json={"amount_lps": 150}).status_code == 200
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_comisiones_lps"] == pytest.approx(150)

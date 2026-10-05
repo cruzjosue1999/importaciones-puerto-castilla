@@ -381,6 +381,8 @@ table.sheet tr.grand td { background: #e0e7ff; }
 .cobro-note { color: var(--muted); font-size: .8rem; }
 .cobro-date { color: var(--muted); font-size: .75rem; }
 .cobro-del { padding: 4px 10px; }
+.cobro-actions { display: flex; gap: 6px; align-items: center; }
+.pago-edit { padding: 4px 10px; }
 .caja-box.active { background: var(--navy); border-color: var(--navy); color: #fff; }
 .caja-box.active .caja-box-sub { color: #cbd5e1; }
 .caja-box.caja-add { border-style: dashed; color: var(--navy); }
