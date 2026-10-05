@@ -355,7 +355,7 @@
     }
     return '<article class="card" data-id="' + p.id + '">' +
       '<button type="button" class="card-toggle">' +
-      '<span class="card-toggle-title">' + escapeHtml(p.description) +
+      '<span class="card-toggle-title">' + '<span class="inv-chip">#' + p.id + '</span>' + escapeHtml(p.description) +
       (p.sold ? '<span class="sold-badge">VENDIDO</span>' : '') +
       (p.lost === 1 ? '<span class="lost-badge">PÉRDIDA</span>' : '') +
       (p.lost === 2 ? '<span class="rec-badge">RECUPERADO</span>' : '') + '</span>' +
@@ -371,6 +371,7 @@
       (p.sold ? '↩ Quitar vendido' : '✓ Marcar como vendido') + '</button>' +
       '<button class="btn lost-btn" data-id="' + p.id + '" data-lost="' + (p.lost ? 1 : 0) + '">' +
       (p.lost ? '↩ Quitar pérdida' : '📉 Marcar pérdida') + '</button>' +
+      '<button class="btn photo-share-btn" data-id="' + p.id + '">📸 Compartir foto</button>' +
       '</div></div></div></article>';
   }
   function numRow(label, value, isTotal) {
@@ -623,6 +624,9 @@
         toggleSold(Number(b.getAttribute('data-id')), b.getAttribute('data-sold') !== '1');
       });
     });
+    box.querySelectorAll('.photo-share-btn').forEach(function (b) {
+      b.addEventListener('click', function () { shareProductPhoto(Number(b.getAttribute('data-id'))); });
+    });
     box.querySelectorAll('.lost-btn').forEach(function (b) {
       b.addEventListener('click', function () {
         var id = Number(b.getAttribute('data-id'));
@@ -631,6 +635,60 @@
         else openLostChoice(id);
       });
     });
+  }
+
+  /* Genera la foto del producto con un cuadro blanco al pie:
+     número de inventario (#id automático) + precio de venta, lista para compartir. */
+  function shareProductPhoto(id) {
+    var p = findCached(id);
+    if (!p) return;
+    if (!p.photo_url) { notice('Este producto no tiene foto todavía.', true); return; }
+    notice('📸 Generando foto…');
+    var img = new Image();
+    img.onload = function () {
+      try {
+        var w = img.naturalWidth, h = img.naturalHeight;
+        var c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        var ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        var m = Math.round(w * 0.045);
+        var bh = Math.round(w * 0.17);
+        var bx = m, by = h - bh - m, bw = w - m * 2, r = Math.round(bh * 0.28);
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(bx, by, bw, bh, r); else ctx.rect(bx, by, bw, bh);
+        ctx.fill();
+        var fs = Math.round(bh * 0.44);
+        ctx.fillStyle = '#0f2a52';
+        ctx.font = '700 ' + fs + "px system-ui, -apple-system, 'Segoe UI', sans-serif";
+        ctx.textBaseline = 'middle';
+        var cy = by + bh / 2;
+        ctx.textAlign = 'left';
+        ctx.fillText('#' + p.id, bx + m, cy);
+        var price = Number(p.sale_efectivo_lps) || Number(p.sale_lps) || 0;
+        ctx.textAlign = 'right';
+        ctx.fillText(fmtL(price), bx + bw - m, cy);
+        c.toBlob(function (blob) {
+          if (!blob) { notice('No se pudo generar la foto.', true); return; }
+          var file = new File([blob], 'producto-' + p.id + '.png', { type: 'image/png' });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            navigator.share({ files: [file], title: 'Producto #' + p.id })
+              .then(function () { notice('✅ Foto compartida.'); })
+              .catch(function (e) { if (!e || e.name !== 'AbortError') notice('No se pudo compartir.', true); });
+          } else {
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = 'producto-' + p.id + '.png';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+            notice('📸 Foto descargada: compártela desde tus fotos.');
+          }
+        }, 'image/png');
+      } catch (e) { notice('No se pudo generar la foto.', true); }
+    };
+    img.onerror = function () { notice('No se pudo cargar la foto.', true); };
+    img.src = p.photo_url;
   }
 
   /* Elige el tipo de pérdida: total (1) o recuperado (2). */
@@ -1123,12 +1181,12 @@
         upload_id: addPhoto.getUploadId() || undefined
       };
       try {
-        await api('/api/products', {
+        var created = await api('/api/products', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(body)
         });
         $('add-form').reset(); addPhoto.reset();
-        notice('✅ Producto guardado.');
+        notice('✅ Producto #' + (created && created.id ? created.id : '') + ' guardado.');
         loadProducts();
       } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
       return;
