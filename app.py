@@ -1438,6 +1438,52 @@ def api_delete_comision(bid):
     return jsonify({"ok": True})
 
 
+def _update_pago(tabla, bid):
+    """Edita un pago recibido o de comisión: monto, nota y/o fecha."""
+    if tabla not in ("cobros", "comisiones"):
+        return jsonify({"error": "No encontrado."}), 404
+    data = request.get_json(silent=True) or {}
+    db = get_db()
+    if not db.execute(f"SELECT id FROM {tabla} WHERE id=?", (bid,)).fetchone():
+        return jsonify({"error": "No encontrado."}), 404
+    sets, vals = [], []
+    if "amount_lps" in data:
+        try:
+            amount = float(data.get("amount_lps") or 0)
+        except (TypeError, ValueError):
+            return jsonify({"error": "El monto no es válido."}), 400
+        if amount <= 0:
+            return jsonify({"error": "El monto debe ser mayor que cero."}), 400
+        sets.append("amount_lps=?")
+        vals.append(amount)
+    if "note" in data:
+        sets.append("note=?")
+        vals.append((data.get("note") or "").strip()[:120])
+    if (data.get("fecha") or "").strip():
+        try:
+            dt = datetime.strptime(data["fecha"].strip(), "%Y-%m-%d")
+        except ValueError:
+            return jsonify({"error": "La fecha no es válida."}), 400
+        sets.append("created_at=?")
+        vals.append(calendar.timegm(dt.replace(hour=12).timetuple()))
+    if not sets:
+        return jsonify({"error": "Nada que actualizar."}), 400
+    vals.append(bid)
+    db.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE id=?", vals)
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/cobros/<int:bid>", methods=["PUT"])
+def api_update_cobro(bid):
+    return _update_pago("cobros", bid)
+
+
+@app.route("/api/comisiones/<int:bid>", methods=["PUT"])
+def api_update_comision(bid):
+    return _update_pago("comisiones", bid)
+
+
 # ---------------- API: resumen y hoja ----------------
 
 @app.route("/api/summary")
