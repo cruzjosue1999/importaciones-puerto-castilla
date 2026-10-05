@@ -2025,35 +2025,56 @@
   window.addEventListener('afterprint', function () {
     document.body.classList.remove('print-graficas');
   });
+  /* PDF por páginas: igual que en la app, se desplaza hacia abajo/arriba. */
   $('share-charts-img').addEventListener('click', async function () {
     closeShareCharts();
-    if (!window.htmlToImage || !window.htmlToImage.toPng) {
-      notice('No se pudo cargar el generador de imagen.', true);
+    if (!window.htmlToImage || !window.htmlToImage.toCanvas) {
+      notice('No se pudo cargar el generador.', true);
       return;
     }
-    notice('🖼️ Generando imagen…');
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+      notice('Necesitas conexión a internet para generar el PDF.', true);
+      return;
+    }
+    notice('📄 Generando PDF…');
     var btn = $('btn-share-charts');
     btn.classList.add('hidden');
     try {
+      var node = $('tab-graficas');
       var bg = '#f2f4f7';
       try { bg = window.getComputedStyle(document.body).backgroundColor || bg; } catch (e0) {}
-      var dataUrl = await window.htmlToImage.toPng($('tab-graficas'),
-        { pixelRatio: 2, backgroundColor: bg });
-      var blob = await (await fetch(dataUrl)).blob();
-      var file = new File([blob], 'ganancias.png', { type: 'image/png' });
+      var src = await window.htmlToImage.toCanvas(node, { pixelRatio: 1.5, backgroundColor: bg });
+      var pageW = src.width;
+      var pageH = Math.round(pageW * 1.4142); // proporción A4 por página
+      var pdf = new window.jspdf.jsPDF({ unit: 'px', format: [pageW, pageH], hotfixes: ['px_scaling'] });
+      var first = true;
+      for (var y = 0; y < src.height; y += pageH) {
+        var h = Math.min(pageH, src.height - y);
+        var c = document.createElement('canvas');
+        c.width = pageW;
+        c.height = h;
+        c.getContext('2d').drawImage(src, 0, y, pageW, h, 0, 0, pageW, h);
+        if (!first) pdf.addPage([pageW, pageH]);
+        first = false;
+        pdf.addImage(c.toDataURL('image/png'), 'PNG', 0, 0, pageW, h);
+      }
+      var blob = pdf.output('blob');
+      var file = new File([blob], 'ganancias.pdf', { type: 'application/pdf' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({ files: [file], title: 'Ganancias — Importaciones a Puerto Castilla' });
       } else {
+        var url = URL.createObjectURL(blob);
         var a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = 'ganancias.png';
+        a.href = url;
+        a.download = 'ganancias.pdf';
         document.body.appendChild(a);
         a.click();
         a.remove();
-        notice('Imagen descargada: envíala por WhatsApp desde tus fotos.');
+        setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+        notice('PDF descargado: envíalo por WhatsApp desde tus archivos.');
       }
     } catch (e) {
-      if (!e || e.name !== 'AbortError') notice('No se pudo generar la imagen: ' + (e && e.message), true);
+      if (!e || e.name !== 'AbortError') notice('No se pudo generar el PDF: ' + (e && e.message), true);
     } finally {
       btn.classList.remove('hidden');
     }
