@@ -407,7 +407,7 @@
     <p class="hint">Ganancias · <span id="share-charts-scope"></span></p>
     <div class="modal-actions" style="flex-direction:column;">
       <button type="button" id="share-charts-print" class="btn">🖨️ Imprimir vista</button>
-      <button type="button" id="share-charts-img" class="btn">🖼️ Enviar imagen por WhatsApp</button>
+      <button type="button" id="share-charts-img" class="btn">📄 Enviar PDF por WhatsApp</button>
       <button type="button" id="share-charts-text" class="btn">💬 Enviar texto por WhatsApp</button>
       <button type="button" id="share-charts-cancel" class="btn">Cancelar</button>
     </div>
@@ -417,6 +417,7 @@
 <div id="notice" class="notice hidden"></div>
 
 <script src="/static/html-to-image.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <script src="/static/app.js?v=12"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
