@@ -686,7 +686,19 @@ def _caja_name(db, caja_id):
     return r["name"] if r else None
 
 
-def _product_json(row, caja_name=None):
+def _inv_number_map(db):
+    """Número de inventario secuencial: sigue el orden de las cajas
+    (sort_order, id) y dentro de cada caja el orden de creación (id).
+    Los productos sin caja van al final."""
+    rows = db.execute(
+        "SELECT p.id FROM products p LEFT JOIN cajas c ON c.id = p.caja_id "
+        "ORDER BY CASE WHEN p.caja_id IS NULL THEN 1 ELSE 0 END, "
+        "COALESCE(c.sort_order, c.id, 999999), COALESCE(c.id, 999999), p.id"
+    ).fetchall()
+    return {r["id"]: i + 1 for i, r in enumerate(rows)}
+
+
+def _product_json(row, caja_name=None, inv_number=None):
     has_photo = bool(row["photo"])
     qty = row["quantity"] if row["quantity"] not in (None, "") else 1
     disc = row["discount_pct"] if "discount_pct" in row.keys() else 0
@@ -703,6 +715,7 @@ def _product_json(row, caja_name=None):
         gl = _ganancia_libre(row["cost_lps"], efectivo) * qty
     return {
         "id": row["id"],
+        "inv_number": inv_number if inv_number is not None else row["id"],
         "description": row["description"],
         "purchase_usd": row["purchase_usd"],
         "cost_lps": row["cost_lps"],
@@ -754,7 +767,8 @@ def api_list_products():
         params.append(cid)
     sql += " ORDER BY p.id"
     rows = db.execute(sql, params).fetchall()
-    return jsonify([_product_json(r, r["caja_name"]) for r in rows])
+    inv_map = _inv_number_map(db)
+    return jsonify([_product_json(r, r["caja_name"], inv_map.get(r["id"])) for r in rows])
 
 
 @app.route("/api/products", methods=["POST"])
@@ -790,7 +804,7 @@ def api_create_product():
         " c.name AS caja_name FROM products p LEFT JOIN cajas c ON c.id=p.caja_id"
         " WHERE p.id=?", (cur.lastrowid,)
     ).fetchone()
-    return jsonify(_product_json(row, row["caja_name"])), 201
+    return jsonify(_product_json(row, row["caja_name"], _inv_number_map(db).get(row["id"]))), 201
 
 
 @app.route("/api/products/<int:pid>", methods=["GET"])
@@ -805,7 +819,7 @@ def api_get_product(pid):
     ).fetchone()
     if not row:
         return jsonify({"error": "Producto no encontrado."}), 404
-    return jsonify(_product_json(row, row["caja_name"]))
+    return jsonify(_product_json(row, row["caja_name"], _inv_number_map(db).get(row["id"])))
 
 
 @app.route("/api/products/<int:pid>", methods=["PUT"])
