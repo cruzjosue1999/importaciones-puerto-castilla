@@ -2,6 +2,14 @@
 (function () {
   'use strict';
 
+  /* ---------- modo solo-ver ----------
+     Link para compartir: ?ver=graficas[&caja=ID] abre la app directo en
+     Gráficas, sin poder editar nada (sin barra de pestañas, sin ventanas
+     de cobros ni saltos a otras pestañas). */
+  var READONLY = false;
+  try { READONLY = new URLSearchParams(window.location.search).get('ver') === 'graficas'; } catch (e) {}
+  if (READONLY) document.body.classList.add('readonly');
+
   /* ---------- utilidades ---------- */
   function $(id) { return document.getElementById(id); }
   function escapeHtml(s) {
@@ -1810,6 +1818,7 @@
     if (box.dataset.reorderOn) return;
     box.dataset.reorderOn = '1';
     box.addEventListener('pointerdown', function (e) {
+      if (READONLY) return;
       var card = e.target && e.target.closest ? e.target.closest('.profit-card') : null;
       if (!card) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -1854,6 +1863,7 @@
   /* Tocar un cuadro lleva a los datos de donde sale ese número,
      manteniendo la inversión seleccionada en Gráficas. */
   function gotoCard(nav) {
+    if (READONLY && nav !== 'ganancia-real') return; // solo ver: sin cobros ni saltos
     var cv = ($('charts-caja') && $('charts-caja').value) || 'all';
     if (nav === 'ganancia-real') { openRealProfit(); return; }
     if (nav === 'cobros') { openCobros(); return; }
@@ -2068,6 +2078,30 @@
   $('share-charts-modal').addEventListener('click', function (e) {
     if (e.target === $('share-charts-modal')) closeShareCharts();
   });
+  function copyText(t) {
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return new Promise(function (res, rej) {
+      var ta = document.createElement('textarea');
+      ta.value = t;
+      ta.style.cssText = 'position:fixed;opacity:0;top:0;left:0;';
+      document.body.appendChild(ta);
+      ta.select();
+      try { if (document.execCommand('copy')) res(); else rej(new Error('copy')); }
+      catch (e) { rej(e); }
+      document.body.removeChild(ta);
+    });
+  }
+  $('share-charts-link').addEventListener('click', function () {
+    closeShareCharts();
+    var url = window.location.origin + window.location.pathname + '?ver=graficas';
+    var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+    if (cv && cv !== 'all') url += '&caja=' + encodeURIComponent(cv);
+    copyText(url).then(function () {
+      notice('🔗 Link copiado: quien lo abra verá las Gráficas sin poder editar.');
+    }, function () {
+      notice('Copia este link: ' + url, true);
+    });
+  });
   $('share-charts-text').addEventListener('click', async function () {
     closeShareCharts();
     try {
@@ -2234,6 +2268,18 @@
   $('charts-caja').addEventListener('change', loadSummary);
 
   /* ---------- inicio ---------- */
-  loadCajas();
-  loadProducts();
+  if (READONLY) {
+    loadCajas().then(function () {
+      try {
+        var q = new URLSearchParams(window.location.search);
+        var cj = q.get('caja');
+        var sel = $('charts-caja');
+        if (cj && sel && sel.querySelector('option[value="' + cj + '"]')) sel.value = cj;
+      } catch (e) {}
+      switchTab('graficas');
+    });
+  } else {
+    loadCajas();
+    loadProducts();
+  }
 })();
