@@ -1977,31 +1977,86 @@
     window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
   }
 
+  /* ---------- Compartir Gráficas: imprimir / imagen / texto ---------- */
+  function closeShareCharts() { $('share-charts-modal').classList.add('hidden'); }
+  async function chartsTextLines() {
+    var cv = $('charts-caja') ? $('charts-caja').value : 'all';
+    var url = '/api/summary' + (cv && cv !== 'all' ? '?caja_id=' + encodeURIComponent(cv) : '');
+    var s = await api(url);
+    var inversion = s.total_costo_lps || 0;
+    var venta = s.total_venta_lps || 0;
+    var ganancia = venta - inversion;
+    var margen = venta > 0 ? (ganancia / venta * 100).toFixed(1) + '%' : '—';
+    var libre = s.ganancia_libre_total || 0;
+    return [
+      '📦 Importaciones a Puerto Castilla',
+      '📊 ' + selectedBoxName('charts-caja'),
+      '',
+      '💰 Inversión en inventario: ' + fmtL(inversion),
+      '🏷️ Valor a precio de venta: ' + fmtL(venta),
+      '📈 Ganancia potencial: ' + fmtL(ganancia),
+      '📊 Margen promedio: ' + margen,
+      '🤝 Comisión tía Wendy (45%): ' + fmtL(libre * 0.45),
+      '👤 Christian (55%): ' + fmtL(libre * 0.55),
+      '📉 Pérdidas: ' + fmtL(s.total_perdidas_lps || 0)
+    ];
+  }
   var shareChartsBtn = $('btn-share-charts');
-  if (shareChartsBtn) shareChartsBtn.addEventListener('click', async function () {
+  if (shareChartsBtn) shareChartsBtn.addEventListener('click', function () {
+    $('share-charts-scope').textContent = selectedBoxName('charts-caja');
+    $('share-charts-modal').classList.remove('hidden');
+  });
+  $('share-charts-cancel').addEventListener('click', closeShareCharts);
+  $('share-charts-modal').addEventListener('click', function (e) {
+    if (e.target === $('share-charts-modal')) closeShareCharts();
+  });
+  $('share-charts-text').addEventListener('click', async function () {
+    closeShareCharts();
     try {
-      var cv = $('charts-caja') ? $('charts-caja').value : 'all';
-      var url = '/api/summary' + (cv && cv !== 'all' ? '?caja_id=' + encodeURIComponent(cv) : '');
-      var s = await api(url);
-      var inversion = s.total_costo_lps || 0;
-      var venta = s.total_venta_lps || 0;
-      var ganancia = venta - inversion;
-      var margen = venta > 0 ? (ganancia / venta * 100).toFixed(1) + '%' : '—';
-      var libre = s.ganancia_libre_total || 0;
-      var lines = [
-        '📦 Importaciones a Puerto Castilla',
-        '📊 ' + selectedBoxName('charts-caja'),
-        '',
-        '💰 Inversión en inventario: ' + fmtL(inversion),
-        '🏷️ Valor a precio de venta: ' + fmtL(venta),
-        '📈 Ganancia potencial: ' + fmtL(ganancia),
-        '📊 Margen promedio: ' + margen,
-        '🤝 Comisión tía Wendy (45%): ' + fmtL(libre * 0.45),
-        '👤 Christian (55%): ' + fmtL(libre * 0.55),
-        '📉 Pérdidas: ' + fmtL(s.total_perdidas_lps || 0)
-      ];
-      shareWhatsApp(lines.join('\n'));
+      shareWhatsApp((await chartsTextLines()).join('\n'));
     } catch (e) { notice('No se pudo compartir: ' + e.message, true); }
+  });
+  $('share-charts-print').addEventListener('click', function () {
+    closeShareCharts();
+    document.body.classList.add('print-graficas');
+    $('tab-graficas').dataset.scope = selectedBoxName('charts-caja');
+    setTimeout(function () { window.print(); }, 60);
+  });
+  window.addEventListener('afterprint', function () {
+    document.body.classList.remove('print-graficas');
+  });
+  $('share-charts-img').addEventListener('click', async function () {
+    closeShareCharts();
+    if (!window.htmlToImage || !window.htmlToImage.toPng) {
+      notice('No se pudo cargar el generador de imagen.', true);
+      return;
+    }
+    notice('🖼️ Generando imagen…');
+    var btn = $('btn-share-charts');
+    btn.classList.add('hidden');
+    try {
+      var bg = '#f2f4f7';
+      try { bg = window.getComputedStyle(document.body).backgroundColor || bg; } catch (e0) {}
+      var dataUrl = await window.htmlToImage.toPng($('tab-graficas'),
+        { pixelRatio: 2, backgroundColor: bg });
+      var blob = await (await fetch(dataUrl)).blob();
+      var file = new File([blob], 'ganancias.png', { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Ganancias — Importaciones a Puerto Castilla' });
+      } else {
+        var a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = 'ganancias.png';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        notice('Imagen descargada: envíala por WhatsApp desde tus fotos.');
+      }
+    } catch (e) {
+      if (!e || e.name !== 'AbortError') notice('No se pudo generar la imagen: ' + (e && e.message), true);
+    } finally {
+      btn.classList.remove('hidden');
+    }
   });
 
   function fmtSheetVal(v, prefix) {
