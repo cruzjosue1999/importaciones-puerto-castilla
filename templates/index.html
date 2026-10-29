@@ -224,6 +224,13 @@
     <div id="comisiones-list" class="cobros-list"></div>
     <form id="comisiones-form">
       <div class="field">
+        <label for="comision-destinatario">¿Para quién es el pago?</label>
+        <select id="comision-destinatario">
+          <option value="wendy">🤝 Tía Wendy</option>
+          <option value="christian">👤 Yo (Christian)</option>
+        </select>
+      </div>
+      <div class="field">
         <label for="comision-fecha">Fecha</label>
         <input type="date" id="comision-fecha">
       </div>
@@ -419,7 +426,7 @@
 
 <script src="/static/html-to-image.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
-<script src="/static/app.js?v=12"></script>
+<script src="/static/app.js?v=13"></script>
 <script src="/static/pull_refresh.js"></script>
 <script>
 if ('serviceWorker' in navigator) {

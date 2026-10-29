@@ -1005,6 +1005,49 @@ def test_comisiones_se_restan_aparte(client):
     assert s["total_comisiones_lps"] == pytest.approx(0)
 
 
+def test_comisiones_por_destinatario(client):
+    # Cada pago de comisión va a una persona: Wendy o Christian.
+    _clean_products(client)
+    cid = client.post("/api/cajas", json={"name": "Caja destinatarios"}).get_json()["id"]
+    # Sin destinatario: queda como de Wendy (compatibilidad con pagos viejos).
+    r = client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 300, "note": "pago viejo"})
+    assert r.status_code == 201
+    r = client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 600,
+        "destinatario": "wendy", "note": "Wendy 2"})
+    assert r.status_code == 201
+    r = client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 400,
+        "destinatario": "christian", "note": "Mío 1"})
+    assert r.status_code == 201
+    # Destinatario inválido se rechaza.
+    assert client.post("/api/comisiones", json={
+        "caja_id": cid, "amount_lps": 10,
+        "destinatario": "otro"}).status_code == 400
+    items = client.get(f"/api/comisiones?caja_id={cid}").get_json()
+    por = {}
+    for it in items:
+        por[it["destinatario"]] = por.get(it["destinatario"], 0) + it["amount_lps"]
+    assert por["wendy"] == pytest.approx(900)
+    assert por["christian"] == pytest.approx(400)
+    # El total combinado del resumen no cambia.
+    s = client.get(f"/api/summary?caja_id={cid}").get_json()
+    assert s["total_comisiones_lps"] == pytest.approx(1300)
+    # Editar puede cambiar el destinatario; uno inválido se rechaza.
+    mio = [it for it in items if it["destinatario"] == "christian"][0]
+    assert client.put(f"/api/comisiones/{mio['id']}", json={
+        "destinatario": "wendy"}).status_code == 200
+    assert client.put(f"/api/comisiones/{mio['id']}", json={
+        "destinatario": "nadie"}).status_code == 400
+    items = client.get(f"/api/comisiones?caja_id={cid}").get_json()
+    por = {}
+    for it in items:
+        por[it["destinatario"]] = por.get(it["destinatario"], 0) + it["amount_lps"]
+    assert por.get("christian", 0) == 0
+    assert por["wendy"] == pytest.approx(1300)
+
+
 def test_editar_pago_recibido(client):
     # Los pagos recibidos se pueden editar (monto, nota, fecha).
     _clean_products(client)

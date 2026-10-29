@@ -327,6 +327,11 @@ def init_db():
     for col in ("fecha_realizada", "fecha_entregada", "fecha_finalizada"):
         if col not in ccols:
             db.execute("ALTER TABLE cajas ADD COLUMN %s TEXT" % col)
+    # Comisiones: a quién se le pagó (tía Wendy o Christian), para llevar
+    # pagado/falta por persona. Los pagos viejos quedan como de Wendy.
+    bcols = [r["name"] for r in db.execute("PRAGMA table_info(comisiones)").fetchall()]
+    if "destinatario" not in bcols:
+        db.execute("ALTER TABLE comisiones ADD COLUMN destinatario TEXT NOT NULL DEFAULT 'wendy'")
     # Respaldo: toda inversión anterior o nueva tiene sus tarjetas Tax y Envío.
     # Va DESPUÉS de la limpieza para no revivir la vieja "Segunda caja".
     # Semillas: categorías de gasto de la planilla (solo si la tabla está vacía)
@@ -1251,10 +1256,11 @@ def api_update_caja(cid):
     if not row:
         return jsonify({"error": "Caja no encontrada."}), 404
     data = request.get_json(silent=True) or {}
-    name = (data.get("name") or "").strip()[:80]
-    if not name:
-        return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
-    db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
+    if "name" in data:
+        name = (data.get("name") or "").strip()[:80]
+        if not name:
+            return jsonify({"error": "El nombre de la inversión es obligatorio."}), 400
+        db.execute("UPDATE cajas SET name=? WHERE id=?", (name, cid))
     for campo in ("fecha_realizada", "fecha_entregada", "fecha_finalizada"):
         if campo in data:
             try:
@@ -1386,7 +1392,7 @@ def api_list_comisiones():
     if caja_id:
         rows = db.execute(
             "SELECT b.id, b.caja_id, c.name AS caja_name, b.amount_lps,"
-            " b.note, b.created_at FROM comisiones b"
+            " b.note, b.destinatario, b.created_at FROM comisiones b"
             " LEFT JOIN cajas c ON c.id=b.caja_id"
             " WHERE b.caja_id=? ORDER BY b.created_at DESC, b.id DESC",
             (caja_id,),
@@ -1394,13 +1400,14 @@ def api_list_comisiones():
     else:
         rows = db.execute(
             "SELECT b.id, b.caja_id, c.name AS caja_name, b.amount_lps,"
-            " b.note, b.created_at FROM comisiones b"
+            " b.note, b.destinatario, b.created_at FROM comisiones b"
             " LEFT JOIN cajas c ON c.id=b.caja_id"
             " ORDER BY b.created_at DESC, b.id DESC"
         ).fetchall()
     return jsonify([
         {"id": r["id"], "caja_id": r["caja_id"], "caja_name": r["caja_name"],
          "amount_lps": r["amount_lps"], "note": r["note"],
+         "destinatario": r["destinatario"] or "wendy",
          "created_at": r["created_at"]}
         for r in rows
     ])
@@ -1426,6 +1433,9 @@ def api_create_comision():
     if amount <= 0:
         return jsonify({"error": "El monto debe ser mayor que cero."}), 400
     note = (data.get("note") or "").strip()[:120]
+    destinatario = (data.get("destinatario") or "wendy").strip().lower()
+    if destinatario not in ("wendy", "christian"):
+        return jsonify({"error": "Elige para quién es el pago."}), 400
     fecha = (data.get("fecha") or "").strip()
     if fecha:
         try:
@@ -1436,9 +1446,9 @@ def api_create_comision():
     else:
         created_at = int(time.time())
     cur = db.execute(
-        "INSERT INTO comisiones(caja_id, amount_lps, note, created_at)"
-        " VALUES(?,?,?,?)",
-        (caja_id, amount, note, created_at),
+        "INSERT INTO comisiones(caja_id, amount_lps, note, created_at, destinatario)"
+        " VALUES(?,?,?,?,?)",
+        (caja_id, amount, note, created_at, destinatario),
     )
     db.commit()
     return jsonify({"id": cur.lastrowid, "ok": True}), 201
@@ -1473,6 +1483,12 @@ def _update_pago(tabla, bid):
     if "note" in data:
         sets.append("note=?")
         vals.append((data.get("note") or "").strip()[:120])
+    if tabla == "comisiones" and "destinatario" in data:
+        dest = (data.get("destinatario") or "").strip().lower()
+        if dest not in ("wendy", "christian"):
+            return jsonify({"error": "Elige para quién es el pago."}), 400
+        sets.append("destinatario=?")
+        vals.append(dest)
     if (data.get("fecha") or "").strip():
         try:
             dt = datetime.strptime(data["fecha"].strip(), "%Y-%m-%d")

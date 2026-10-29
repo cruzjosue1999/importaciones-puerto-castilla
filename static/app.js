@@ -762,6 +762,7 @@
     $('comision-monto').value = '';
     $('comision-nota').value = '';
     $('comision-fecha').value = hoyISO();
+    $('comision-destinatario').value = 'wendy';
     $('comisiones-error').classList.add('hidden');
     $('cobros-error').classList.add('hidden');
     pagoEdit = null;
@@ -784,6 +785,7 @@
   }
   function pagoRow(b, kind) {
     return '<div class="cobro-row"><span class="cobro-main"><b>' + fmtL(b.amount_lps) + '</b>' +
+      (kind === 'comisiones' ? ' <span class="cobro-note">' + (b.destinatario === 'christian' ? '👤 Yo' : '🤝 Tía Wendy') + '</span>' : '') +
       (b.note ? ' <span class="cobro-note">' + escapeHtml(b.note) + '</span>' : '') +
       ' <span class="cobro-date">' + fmtFechaCorta(b.created_at) + '</span></span>' +
       '<span class="cobro-actions">' +
@@ -796,6 +798,7 @@
   function pagoFormIds(kind) {
     return kind === 'comisiones'
       ? { fecha: 'comision-fecha', monto: 'comision-monto', nota: 'comision-nota',
+          dest: 'comision-destinatario',
           err: 'comisiones-error', submit: 'comision-submit', cancel: 'comision-cancel-edit',
           addLabel: 'Agregar pago' }
       : { fecha: 'cobro-fecha', monto: 'cobro-monto', nota: 'cobro-nota',
@@ -818,6 +821,7 @@
     $(F.fecha).value = fechaInputISO(b.created_at);
     $(F.monto).value = b.amount_lps;
     $(F.nota).value = b.note || '';
+    if (F.dest) $(F.dest).value = b.destinatario === 'christian' ? 'christian' : 'wendy';
     $(F.err).classList.add('hidden');
     $(F.submit).textContent = '💾 Guardar cambios';
     $(F.cancel).classList.remove('hidden');
@@ -833,6 +837,7 @@
     $(F.monto).value = '';
     $(F.nota).value = '';
     $(F.fecha).value = hoyISO();
+    if (F.dest) $(F.dest).value = 'wendy';
     $(F.err).classList.add('hidden');
     $(F.submit).textContent = F.addLabel;
     $(F.cancel).classList.add('hidden');
@@ -853,16 +858,24 @@
         '<div class="cobros-total-row"><span>💵 Cobrado</span><b>' + fmtL(s.total_cobrado_lps) + '</b></div>' +
         '<div class="cobros-total-row"><span>(−) Comisiones pagadas</span><b>' + fmtL(s.total_comisiones_lps || 0) + '</b></div>' +
         '<div class="cobros-total-row total"><span>📋 Falta por cobrar</span><b>' + fmtL(s.falta_por_cobrar_lps) + '</b></div>';
-      // Comisiones aparte: se restan del total de ambas comisiones (45% + 55%).
+      // Comisiones aparte: pagado y falta por persona (45% Wendy / 55% Christian).
       var libreC = s.ganancia_libre_total || 0;
       var comision45 = libreC * 0.45;
       var comision55 = libreC * 0.55;
-      var pagado = s.total_comisiones_lps || 0;
+      var pagadoW = 0, pagadoC = 0;
+      coms.forEach(function (b) {
+        if (b.destinatario === 'christian') pagadoC += b.amount_lps || 0;
+        else pagadoW += b.amount_lps || 0;
+      });
       ctotals.innerHTML =
         '<div class="cobros-total-row"><span>🤝 Comisión tía Wendy (45%)</span><b>' + fmtL(comision45) + '</b></div>' +
+        '<div class="cobros-total-row"><span>(−) Pagado a ella</span><b>' + fmtL(pagadoW) + '</b></div>' +
+        '<div class="cobros-total-row"><span>Falta por pagarle</span><b>' + fmtL(comision45 - pagadoW) + '</b></div>' +
+        '<div style="height:8px"></div>' +
         '<div class="cobros-total-row"><span>👤 Mi comisión (55%)</span><b>' + fmtL(comision55) + '</b></div>' +
-        '<div class="cobros-total-row"><span>(−) Pagado</span><b>' + fmtL(pagado) + '</b></div>' +
-        '<div class="cobros-total-row total"><span>Falta por pagar</span><b>' + fmtL(comision45 + comision55 - pagado) + '</b></div>';
+        '<div class="cobros-total-row"><span>(−) Pagado a mí</span><b>' + fmtL(pagadoC) + '</b></div>' +
+        '<div class="cobros-total-row"><span>Falta por pagarme</span><b>' + fmtL(comision55 - pagadoC) + '</b></div>' +
+        '<div class="cobros-total-row total"><span>Falta por pagar</span><b>' + fmtL(comision45 + comision55 - pagadoW - pagadoC) + '</b></div>';
       clist.innerHTML = coms.length
         ? coms.map(function (b) { return pagoRow(b, 'comisiones'); }).join('')
         : '<p class="hint">Sin pagos de comisión registrados.</p>';
@@ -1390,6 +1403,7 @@
           body: JSON.stringify({
             amount_lps: monto,
             note: $('comision-nota').value.trim(),
+            destinatario: $('comision-destinatario').value,
             fecha: $('comision-fecha').value
           })
         });
@@ -1401,6 +1415,7 @@
             caja_id: Number(cajaId),
             amount_lps: monto,
             note: $('comision-nota').value.trim(),
+            destinatario: $('comision-destinatario').value,
             fecha: $('comision-fecha').value
           })
         });
