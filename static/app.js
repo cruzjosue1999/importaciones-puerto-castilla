@@ -1036,26 +1036,43 @@
   }
 
   /* Al guardar una edición la lista se re-renderiza (innerHTML nuevo) y el
-     scroll se pierde: el usuario quedaba en otro producto. Guarda la
-     posición y el producto editado y vuelve al mismo lugar. */
-  function restoreProductScroll(id, savedY) {
+     scroll se pierde: el usuario quedaba en otro producto. El arreglo NO es
+     restaurar window.scrollY tal cual: al re-renderizar, todos los detalles
+     de las tarjetas quedan cerrados (.card-detail hidden), así que la lista
+     queda más corta por encima del producto editado y el mismo scrollY cae
+     un producto más abajo (ej. editó la 118 y quedó en la 119). Por eso se
+     ancla a la TARJETA: se guarda su posición en pantalla antes de guardar
+     y, tras el re-render, se reabre su detalle si estaba abierto y se mueve
+     el scroll lo justo para que la tarjeta vuelva al mismo lugar. */
+  function restoreProductScroll(id, saved) {
     var card = id ? document.querySelector('article.card[data-id="' + id + '"]') : null;
-    if (card) {
-      // Si la tarjeta quedó dentro de un grupo de caja colapsado, ábrelo
-      // primero: si no, el scroll no tiene a dónde volver.
-      var body = card.closest ? card.closest('.group-body') : null;
-      if (body && body.classList.contains('hidden')) {
-        body.classList.remove('hidden');
-        var chev = body.parentNode.querySelector('.group-toggle .chev');
-        if (chev) chev.textContent = '▲';
+    if (!card) {
+      if (saved && typeof saved.y === 'number') window.scrollTo(0, saved.y);
+      return;
+    }
+    // Si la tarjeta quedó dentro de un grupo de caja colapsado, ábrelo
+    // primero: si no, el scroll no tiene a dónde volver.
+    var body = card.closest ? card.closest('.group-body') : null;
+    if (body && body.classList.contains('hidden')) {
+      body.classList.remove('hidden');
+      var chev = body.parentNode.querySelector('.group-toggle .chev');
+      if (chev) chev.textContent = '▲';
+    }
+    // Reabrir el detalle si estaba abierto al editar: es lo que hace que
+    // la lista mida lo mismo que antes y el ancla no se desplace.
+    if (saved && saved.detailOpen) {
+      var det = card.querySelector('.card-detail');
+      if (det && det.classList.contains('hidden')) {
+        det.classList.remove('hidden');
+        var c2 = card.querySelector('.card-toggle .chev');
+        if (c2) c2.textContent = '▲';
       }
     }
-    if (typeof savedY === 'number') window.scrollTo(0, savedY);
-    if (card) {
-      var r = card.getBoundingClientRect();
-      if (r.top < 0 || r.bottom > window.innerHeight) {
-        card.scrollIntoView({ block: 'nearest' });
-      }
+    if (saved && typeof saved.cardTop === 'number') {
+      var delta = card.getBoundingClientRect().top - saved.cardTop;
+      if (delta !== 0) window.scrollTo(0, window.scrollY + delta);
+    } else if (saved && typeof saved.y === 'number') {
+      window.scrollTo(0, saved.y);
     }
   }
 
@@ -1488,9 +1505,16 @@
     var up = editPhoto.getUploadId();
     if (up) body.upload_id = up;
     if (!body.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
-    // Guardar la posición antes de re-renderizar: al reconstruir
-    // #product-list el scroll se pierde y el usuario queda en otro lugar.
-    var savedScrollY = window.scrollY;
+    // Guardar el ancla antes de re-renderizar: la posición en pantalla de
+    // la tarjeta editada y si su detalle estaba abierto (para editarlo hay
+    // que haberlo abierto). Ver restoreProductScroll.
+    var editedCard = document.querySelector('article.card[data-id="' + id + '"]');
+    var editedDetail = editedCard ? editedCard.querySelector('.card-detail') : null;
+    var savedScroll = {
+      y: window.scrollY,
+      cardTop: editedCard ? editedCard.getBoundingClientRect().top : null,
+      detailOpen: editedDetail ? !editedDetail.classList.contains('hidden') : false
+    };
     var editedId = Number(id);
     try {
       await api('/api/products/' + id, {
@@ -1501,7 +1525,7 @@
       editPhoto.reset();
       notice('✅ Producto actualizado.');
       await loadProducts();
-      restoreProductScroll(editedId, savedScrollY);
+      restoreProductScroll(editedId, savedScroll);
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
 
