@@ -584,6 +584,43 @@ def test_pending_counts(client):
     _clean_cajas(client)
 
 
+def test_summary_productos_pendientes(client):
+    """Tarjeta 'Productos pendientes': por vender (ni vendidos ni perdidos),
+    al precio efectivo (con descuento) y multiplicado por cantidad."""
+    _clean_cajas(client)
+    _clean_products(client)
+    _clean_expenses(client)
+    c1 = client.post("/api/cajas", json={"name": "Caja P"}).get_json()["id"]
+    c2 = client.post("/api/cajas", json={"name": "Caja Q"}).get_json()["id"]
+    # Pendiente en c1: 1000 L con 10% de descuento, cantidad 2 -> 900 x 2
+    client.post("/api/products", json={"description": "P1", "cost_lps": 500,
+                                       "sale_lps": 1000, "discount_pct": 10,
+                                       "quantity": 2, "caja_id": c1})
+    # Vendido en c1: no cuenta
+    p2 = client.post("/api/products", json={"description": "P2", "cost_lps": 100,
+                                            "sale_lps": 400, "caja_id": c1}).get_json()["id"]
+    client.put(f"/api/products/{p2}/sold", json={"sold": True})
+    # Pérdida en c1: no cuenta
+    p3 = client.post("/api/products", json={"description": "P3", "cost_lps": 100,
+                                            "sale_lps": 400, "caja_id": c1}).get_json()["id"]
+    client.put(f"/api/products/{p3}/lost", json={"lost": 1})
+    # Pendiente en c2: 700 L, cantidad 1
+    client.post("/api/products", json={"description": "P4", "cost_lps": 300,
+                                       "sale_lps": 700, "caja_id": c2})
+    s = client.get("/api/summary").get_json()
+    assert s["total_venta_pendientes_lps"] == pytest.approx(1800 + 700)
+    assert s["n_pendientes"] == 3
+    s1 = client.get(f"/api/summary?caja_id={c1}").get_json()
+    assert s1["total_venta_pendientes_lps"] == pytest.approx(1800)
+    assert s1["n_pendientes"] == 2
+    s2 = client.get(f"/api/summary?caja_id={c2}").get_json()
+    assert s2["total_venta_pendientes_lps"] == pytest.approx(700)
+    assert s2["n_pendientes"] == 1
+    _clean_products(client)
+    _clean_expenses(client)
+    _clean_cajas(client)
+
+
 # ---------- regresión: _Row de producción debe tener .keys() ----------
 
 def test_row_produccion_tiene_keys():

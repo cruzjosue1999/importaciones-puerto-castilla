@@ -559,6 +559,13 @@ def _compute_totals(db, caja_id=None, unassigned=False):
     # los pagos recibidos se restan para saber lo que falta.
     vendidos = [p for p in products if p["sold"]]
     total_venta_vendidos_lps = sum(_venta_efectiva(p) * _qty(p) for p in vendidos)
+    # Pendientes por vender: ni vendidos ni perdidos (ni recuperados).
+    # Es lo que falta por vender, al precio de venta efectivo.
+    pendientes = [p for p in products if not p["sold"] and not p["lost"]]
+    total_venta_pendientes_lps = sum(
+        _venta_efectiva(p) * _qty(p) for p in pendientes
+    )
+    n_pendientes = sum(_qty(p) for p in pendientes)
     if unassigned:
         cobros = []
     elif caja_id:
@@ -621,6 +628,8 @@ def _compute_totals(db, caja_id=None, unassigned=False):
         "n_recuperado": len(recuperados),
         "total_recuperado_lps": total_recuperado_lps,
         "total_venta_vendidos_lps": total_venta_vendidos_lps,
+        "total_venta_pendientes_lps": total_venta_pendientes_lps,
+        "n_pendientes": n_pendientes,
         "total_cobrado_lps": total_cobrado_lps,
         "falta_por_cobrar_lps": falta_por_cobrar_lps,
         "total_comisiones_lps": total_comisiones_lps,
@@ -1541,6 +1550,8 @@ def api_summary():
             "n_recuperado": t["n_recuperado"],
             "total_recuperado_lps": t["total_recuperado_lps"],
             "total_venta_vendidos_lps": t["total_venta_vendidos_lps"],
+            "total_venta_pendientes_lps": t["total_venta_pendientes_lps"],
+            "n_pendientes": t["n_pendientes"],
             "total_cobrado_lps": t["total_cobrado_lps"],
             "falta_por_cobrar_lps": t["falta_por_cobrar_lps"],
             "total_comisiones_lps": t["total_comisiones_lps"],
