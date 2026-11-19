@@ -1035,6 +1035,30 @@
     } catch (e) { notice('No se pudo marcar: ' + e.message, true); }
   }
 
+  /* Al guardar una edición la lista se re-renderiza (innerHTML nuevo) y el
+     scroll se pierde: el usuario quedaba en otro producto. Guarda la
+     posición y el producto editado y vuelve al mismo lugar. */
+  function restoreProductScroll(id, savedY) {
+    var card = id ? document.querySelector('article.card[data-id="' + id + '"]') : null;
+    if (card) {
+      // Si la tarjeta quedó dentro de un grupo de caja colapsado, ábrelo
+      // primero: si no, el scroll no tiene a dónde volver.
+      var body = card.closest ? card.closest('.group-body') : null;
+      if (body && body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        var chev = body.parentNode.querySelector('.group-toggle .chev');
+        if (chev) chev.textContent = '▲';
+      }
+    }
+    if (typeof savedY === 'number') window.scrollTo(0, savedY);
+    if (card) {
+      var r = card.getBoundingClientRect();
+      if (r.top < 0 || r.bottom > window.innerHeight) {
+        card.scrollIntoView({ block: 'nearest' });
+      }
+    }
+  }
+
   async function loadProducts() {
     try {
       var url = '/api/products';
@@ -1464,6 +1488,10 @@
     var up = editPhoto.getUploadId();
     if (up) body.upload_id = up;
     if (!body.description) { err.textContent = 'La descripción es obligatoria.'; err.classList.remove('hidden'); return; }
+    // Guardar la posición antes de re-renderizar: al reconstruir
+    // #product-list el scroll se pierde y el usuario queda en otro lugar.
+    var savedScrollY = window.scrollY;
+    var editedId = Number(id);
     try {
       await api('/api/products/' + id, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -1472,7 +1500,8 @@
       $('edit-modal').classList.add('hidden');
       editPhoto.reset();
       notice('✅ Producto actualizado.');
-      loadProducts();
+      await loadProducts();
+      restoreProductScroll(editedId, savedScrollY);
     } catch (e2) { err.textContent = e2.message; err.classList.remove('hidden'); }
   });
 
@@ -1753,7 +1782,8 @@
         { id: 'perdidas', ico: '📉', label: 'Pérdidas', value: negL(s.total_perdidas_lps), nav: 'productos-lost' },
         { id: 'descuentos', ico: '🔖', label: 'Descuentos (dejado de ganar)', value: negL(s.total_descuentos_lps), nav: 'productos' },
         { id: 'cobrado', ico: '💵', label: 'Cobrado', value: fmtL(s.total_cobrado_lps), nav: 'cobros' },
-        { id: 'falta', ico: '📋', label: 'Falta por cobrar', value: fmtL(s.falta_por_cobrar_lps), nav: 'cobros' }
+        { id: 'falta', ico: '📋', label: 'Falta por cobrar', value: fmtL(s.falta_por_cobrar_lps), nav: 'cobros' },
+        { id: 'pendientes', ico: '📦', label: 'Productos pendientes', value: fmtL(s.total_venta_pendientes_lps) + ' · ' + (s.n_pendientes || 0) + ' prod.', nav: 'productos' }
       ];
       box.innerHTML = orderCards(cards).map(profitCardHtml).join('');
       enableCardReorder(box);
